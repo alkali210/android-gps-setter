@@ -155,6 +155,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
     protected abstract fun initializeMap()
     protected abstract fun setupButtons()
     protected abstract fun moveMapToNewLocation(moveNewLocation: Boolean)
+    protected abstract fun centerMapOnLocation(latitude: Double, longitude: Double)
 
     // Route overlay (flavor-specific map): polyline + A/B markers, and a moving traveler dot.
     protected abstract fun drawRoute(points: List<Pair<Double, Double>>)
@@ -669,9 +670,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
                     if (location == null) {
                         requestNewLocationData()
                     } else {
-                        lat = location.latitude
-                        lon = location.longitude
-                        moveMapToNewLocation(true)
+                        centerMapOnLocation(location.latitude, location.longitude)
                     }
                 }
             } else {
@@ -701,9 +700,8 @@ abstract class BaseMapActivity: AppCompatActivity() {
 
     private val mLocationCallback = object : LocationCallback() {
         override fun onLocationResult(locationResult: LocationResult) {
-            val mLastLocation: Location = locationResult.lastLocation!!
-            lat = mLastLocation.latitude
-            lon = mLastLocation.longitude
+            val location = locationResult.lastLocation ?: return
+            centerMapOnLocation(location.latitude, location.longitude)
         }
     }
 

@@ -60,6 +60,16 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             .commit()
         mapFragment?.getMapAsync(this)
     }
+    override fun centerMapOnLocation(latitude: Double, longitude: Double) {
+        val camera = mMap.cameraPosition
+        mMap.animateCamera(CameraUpdateFactory.newCameraPosition(
+            CameraPosition.Builder(camera)
+                .target(coordinates.toMap(latitude, longitude))
+                .zoom(maxOf(camera.zoom, 12f))
+                .build()
+        ))
+    }
+
     override fun moveMapToNewLocation(moveNewLocation: Boolean) {
         if (moveNewLocation) {
             mLatLng = coordinates.toMap(lat, lon)
