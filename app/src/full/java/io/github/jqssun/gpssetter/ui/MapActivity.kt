@@ -33,6 +33,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     private lateinit var mMap: GoogleMap
     private var mLatLng: LatLng? = null
     private var mMarker: Marker? = null
+    private val coordinates by lazy { GoogleMapCoordinates(viewModel.mapType) }
 
     override fun hasMarker(): Boolean {
         return mMarker?.isVisible == true
@@ -53,7 +54,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     }
     override fun moveMapToNewLocation(moveNewLocation: Boolean) {
         if (moveNewLocation) {
-            mLatLng = LatLng(lat, lon)
+            mLatLng = coordinates.toMap(lat, lon)
             mLatLng.let { latLng ->
                 mMap.animateCamera(CameraUpdateFactory.newCameraPosition(
                         CameraPosition.Builder()
@@ -73,6 +74,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     }
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
+        mMap.setLocationSource(GoogleMapLocationSource(this, lifecycle, coordinates))
         with(mMap){
 
             
@@ -99,7 +101,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             val zoom = 12.0f
             lat = viewModel.getLat
             lon  = viewModel.getLng
-            mLatLng = LatLng(lat, lon)
+            mLatLng = coordinates.toMap(lat, lon)
             mLatLng.let {
                 mMarker = addMarker(
                     MarkerOptions().position(it!!).draggable(false).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)).visible(false)
@@ -119,15 +121,16 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
         }
     }
     override fun onMapClick(latLng: LatLng) {
-        if (onMapTapped(latLng.latitude, latLng.longitude)) return
+        val point = coordinates.fromMap(latLng)
+        if (onMapTapped(point.first, point.second)) return
+        lat = point.first
+        lon = point.second
         mLatLng = latLng
         mMarker?.let { marker ->
             mLatLng.let {
                 // marker.isVisible = true
                 updateMarker(it!!)
                 mMap.animateCamera(CameraUpdateFactory.newLatLng(it))
-                lat = it.latitude
-                lon = it.longitude
             }
         }
     }
@@ -144,7 +147,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     override fun drawRoute(points: List<Pair<Double, Double>>) {
         clearRoute()
         if (points.size < 2) return
-        val lls = points.map { LatLng(it.first, it.second) }
+        val lls = points.map { coordinates.toMap(it.first, it.second) }
         routeLine = mMap.addPolyline(PolylineOptions().addAll(lls).color(Accent.current().color).width(10f))
         aMarker = mMap.addMarker(MarkerOptions().position(lls.first()).icon(BitmapDescriptorFactory.fromBitmap(dotBitmap(0xFF22C55E.toInt()))))
         bMarker = mMap.addMarker(MarkerOptions().position(lls.last()).icon(BitmapDescriptorFactory.fromBitmap(dotBitmap(0xFFEF4444.toInt()))))
@@ -160,7 +163,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     }
 
     override fun setTraveler(lat: Double, lng: Double) {
-        val pos = LatLng(lat, lng)
+        val pos = coordinates.toMap(lat, lng)
         if (travelerMarker == null) {
             travelerMarker = mMap.addMarker(MarkerOptions().position(pos).icon(BitmapDescriptorFactory.fromBitmap(dotBitmap(Accent.current().color))))
         } else {
@@ -190,7 +193,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             binding.startButton.visibility = View.GONE
             binding.stopButton.visibility = View.VISIBLE
             lifecycleScope.launch {
-                mLatLng?.getAddress(getActivityInstance())?.let { address ->
+                LatLng(lat, lon).getAddress(getActivityInstance()).let { address ->
                     address.collect{ value ->
                         showStartNotification(value)
                     }
@@ -199,14 +202,21 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             showToast(getString(R.string.location_set))
         }
         binding.stopButton.setOnClickListener {
-            mLatLng.let {
-                viewModel.update(false, it!!.latitude, it.longitude)
-            }
+            viewModel.update(false, lat, lon)
             removeMarker()
             binding.stopButton.visibility = View.GONE
             binding.startButton.visibility = View.VISIBLE
             cancelNotification()
             showToast(getString(R.string.location_unset))
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (::mMap.isInitialized &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        ) {
+            mMap.isMyLocationEnabled = true
         }
     }
 }

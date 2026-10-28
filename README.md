@@ -17,6 +17,8 @@ This is a fork of [jqssun/android-gps-setter](https://github.com/jqssun/android-
 - **System hooks fixed for Android 11–13.** The location service moved packages in Android 11, so the system hook never ran there.
 - **Start, stop and location changes apply immediately**, without a reboot.
 - **Working maps in the FOSS build.** It uses keyless [OpenFreeMap](https://openfreemap.org) tiles, because the previously bundled Mapbox token was revoked.
+- **Coordinate-safe app hooks.** Injects WGS-84 fixes at Android's location-delivery boundary without overwriting coordinates that a map SDK has converted to GCJ-02 or BD-09.
+- **China map alignment in the Full build.** Google normal, terrain, satellite and hybrid maps receive GCJ-02 display coordinates for the live blue dot, selected points and routes; map clicks are converted back to WGS-84 before saving or spoofing. FOSS/OpenFreeMap remains WGS-84.
 - **Fixes:** saving favorites and map taps in the FOSS build, crashes when offline or without a geocoder, and the update checker picking the other build's APK. Debug builds no longer need a keystore.
 
 ## Downloads
@@ -47,7 +49,7 @@ This fork installs as `io.github.varma322.gpssetter`, alongside upstream (`io.gi
 ## How it works
 
 - **System Framework.** Actively generates 1 Hz spoofed fixes to location providers (`gps`, `fused`, `network`) and rewrites incoming fixes in `LocationProviderManager.onReportLocation` (Android 12+), `LocationManagerService.getLastLocation` and `injectLocation`. While spoofing, it also refuses raw GNSS measurement, navigation and batching listeners.
-- **Scoped apps.** Inside the app's own process, hooks `Location.getLatitude` / `getLongitude` / `getAccuracy` / `set` and `LocationManager.getLastKnownLocation`. This catches every location the app reads, wherever it came from.
+- **Scoped apps.** Inside the app's own process, hooks `LocationManager.getLastKnownLocation` and framework listener/current-location transports (single fixes and, on Android 12+, lists of fixes). `Location` getters and `set` are left untouched so SDK coordinate conversions and copies remain valid. For Play-services or SDK-owned delivery paths outside `LocationManager`, use the System Framework hook.
 
 ## Tips and limitations
 
@@ -55,6 +57,9 @@ This fork installs as `io.github.varma322.gpssetter`, alongside upstream (`io.gi
 - **Apps protected by Google Play's anti-tamper** (look for `libpairipcore.so` in the APK) crash when scoped. Don't scope them; rely on the system hook.
 - **Only enable one location-spoofing module.** If two hook the same calls, whichever runs last wins.
 - **Spoofing is system-wide while it's on.** That includes other system services; only emergencies are exempt (Android 14+).
+- **Coordinate systems.** Android location fixes and numeric coordinates supplied to this module use WGS-84. Chinese map SDKs may convert these to GCJ-02 or BD-09 for display; the module must not convert the system fix a second time or overwrite the SDK's converted result. Convert coordinates copied from GCJ-02/BD-09 sources to WGS-84 before entering them manually. After updating the module, restart scoped apps (and reboot if using System Framework) to unload the old hooks.
+- **Google map layers.** Full's correction applies consistently to normal, terrain, satellite and hybrid maps: changing the layer does not bypass the display-coordinate conversion. The conversion uses the conventional approximate China bounding rectangle, not precise regional borders; it cannot guarantee alignment near borders or in Hong Kong, Macau, Taiwan and adjacent regions. Use the FOSS WGS-84 map where that approximation is unsuitable.
+- **Previously saved China map picks.** Full builds before the coordinate correction saved raw display coordinates from shifted maps; the initial correction also excluded satellite/hybrid modes. Re-select points/favorites created through those uncorrected paths after updating. They are not migrated automatically because they are indistinguishable from deliberately entered WGS-84 coordinates.
 
 ## Building
 

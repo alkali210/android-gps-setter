@@ -382,21 +382,17 @@ object LocationHook {
         init(xposed)
         val interval = 80 // 200
 
-        for (method in Location::class.java.declaredMethods) {
-            val spoofed: (() -> Any)? = when (method.name) {
-                "getLatitude" -> { -> newlat }
-                "getLongitude" -> { -> newlng }
-                "getAccuracy" -> { -> accuracy }
-                else -> null
-            }
-            if (spoofed != null) safely(method.name) {
-                module.hook(method).intercept { chain -> if (isActive(interval)) spoofed() else chain.proceed() }
-            }
+        // Android Location fixes are WGS-84. Inject at the framework delivery boundary,
+        // never in Location getters/set(): SDKs also use Location to hold and copy
+        // converted GCJ-02/BD-09 coordinates, which must remain untouched.
+        val listenerTransport = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            "android.location.LocationManager\$LocationListenerTransport"
+        } else {
+            "android.location.LocationManager\$ListenerTransport"
         }
-
-        safely("Location.set") {
-            module.hook(Location::class.java.getDeclaredMethod("set", Location::class.java))
-                .intercept { chain -> if (isActive(interval)) proceedWithFake(chain) else chain.proceed() }
+        hookLocationTransport(listenerTransport, interval)
+        if (Build.VERSION.SDK_INT >= 30) {
+            hookLocationTransport("android.location.LocationManager\$GetCurrentLocationTransport", interval)
         }
 
         safely("getLastKnownLocation") {
@@ -404,6 +400,31 @@ object LocationHook {
                 .intercept { chain ->
                     if (isActive(interval)) fakeLocation(provider = chain.getArg(0) as String) else chain.proceed()
                 }
+        }
+    }
+
+    private fun hookLocationTransport(className: String, interval: Int) {
+        safely(className) {
+            val transport = Class.forName(className)
+            for (method in transport.declaredMethods) {
+                if (method.name !in listOf("onLocationChanged", "onLocation")) continue
+                val firstType = method.parameterTypes.firstOrNull() ?: continue
+                if (firstType != Location::class.java && firstType != List::class.java) continue
+                module.hook(method).intercept { chain ->
+                    if (!isActive(interval) || chain.getArg(0) == null) {
+                        chain.proceed()
+                    } else {
+                        val args = Array<Any?>(method.parameterCount) { chain.getArg(it) }
+                        args[0] = when (val fix = args[0]) {
+                            is Location -> fakeLocation(fix)
+                            is List<*> -> fix.map { fakeLocation(it as Location) }
+                            else -> args[0]
+                        }
+                        // Keep completion callbacks and other framework arguments intact.
+                        chain.proceed(args)
+                    }
+                }
+            }
         }
     }
 }
