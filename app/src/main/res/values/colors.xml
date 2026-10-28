@@ -8,11 +8,11 @@
     -->
     <color name="ic_launcher_background">#00897B</color>
 
-    <!-- glassmorphism over the dark map -->
-    <color name="glass_fill">#B315181D</color>
-    <color name="glass_stroke">#26FFFFFF</color>
-    <color name="glass_ink">#E8EBF0</color>
-    <color name="glass_ink_dim">#9AA3B2</color>
-    <color name="glass_dialog_fill">#F2191C22</color>
+    <!-- Light glass surfaces; values-night supplies the dark palette. -->
+    <color name="glass_fill">#E6F5F7FA</color>
+    <color name="glass_stroke">#26000000</color>
+    <color name="glass_ink">#1B2028</color>
+    <color name="glass_ink_dim">#505B6B</color>
+    <color name="glass_dialog_fill">#F2F5F7FA</color>
 
 </resources>

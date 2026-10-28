@@ -4,6 +4,7 @@ package io.github.jqssun.gpssetter.ui
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.view.View
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.lifecycleScope
@@ -91,7 +92,9 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
 
             // maplibre custom ui
             // ponytail: keyless OpenFreeMap for every map type; satellite/terrain need a keyed provider (e.g. own Mapbox token)
-            setStyle("https://tiles.openfreemap.org/styles/dark") { style ->
+            val isNight = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+            val mapStyle = if (isNight) "dark" else "liberty"
+            setStyle("https://tiles.openfreemap.org/styles/$mapStyle") { style ->
                 if (ActivityCompat.checkSelfPermission(this@MapActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) { 
                     val locationComponent = mMap.locationComponent
                     locationComponent.activateLocationComponent(

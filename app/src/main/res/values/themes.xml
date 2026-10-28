@@ -1,6 +1,5 @@
 <resources>
-    <!-- Committed dark for the glassmorphism look; light theme is a separate effort. -->
-    <style name="Theme.GPSSetter" parent="Theme.Material3.Dark.NoActionBar">
+    <style name="Theme.GPSSetter" parent="Theme.Material3.DayNight.NoActionBar">
 
         <item name="colorPrimary">@color/primary</item>
 
@@ -14,7 +13,7 @@
 
     </style>
 
-    <!-- Glass dialogs: dark translucent card, light ink, accent buttons -->
+    <!-- Glass dialogs share the configuration-aware surface and ink palette. -->
     <style name="ThemeOverlay.GPSSetter.GlassDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <item name="colorSurface">@color/glass_dialog_fill</item>
         <item name="colorOnSurface">@color/glass_ink</item>

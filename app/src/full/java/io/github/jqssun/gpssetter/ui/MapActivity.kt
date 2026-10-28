@@ -4,6 +4,7 @@ package io.github.jqssun.gpssetter.ui
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.view.View
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.lifecycleScope
@@ -87,7 +88,12 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             uiSettings.isCompassEnabled = false
             setPadding(0,80,0,0)
             mapType = viewModel.mapType
-            setMapStyle(com.google.android.gms.maps.model.MapStyleOptions.loadRawResourceStyle(this@MapActivity, R.raw.map_style_dark))
+            val isNight = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+            setMapStyle(if (isNight) {
+                com.google.android.gms.maps.model.MapStyleOptions.loadRawResourceStyle(this@MapActivity, R.raw.map_style_dark)
+            } else {
+                null // Restore Google's default light map.
+            })
 
 
             val zoom = 12.0f

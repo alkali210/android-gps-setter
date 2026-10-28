@@ -87,7 +87,7 @@ class ActivitySettings : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyAccent()
-        enableEdgeToEdge(navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT))
+        enableEdgeToEdge(navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT))
 
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)
@@ -152,7 +152,6 @@ class ActivitySettings : AppCompatActivity() {
                 val newMode = (newValue as String).toInt()
                 if (PrefManager.darkTheme != newMode) {
                     AppCompatDelegate.setDefaultNightMode(newMode)
-                    activity?.recreate()
                 }
                 true
             }

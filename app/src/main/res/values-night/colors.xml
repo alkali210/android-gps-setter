@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="glass_fill">#B315181D</color>
+    <color name="glass_stroke">#26FFFFFF</color>
+    <color name="glass_ink">#E8EBF0</color>
+    <color name="glass_ink_dim">#9AA3B2</color>
+    <color name="glass_dialog_fill">#F2191C22</color>
+</resources>

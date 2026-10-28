@@ -2,7 +2,6 @@ package io.github.jqssun.gpssetter.ui
 
 import android.app.Activity
 import android.content.Context
-import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
 import android.view.View
@@ -32,7 +31,7 @@ class AccentPreference @JvmOverloads constructor(context: Context, attrs: Attrib
             sw.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(accent.color)
-                if (i == PrefManager.accentIndex) setStroke((2.5f * d).toInt(), Color.WHITE)
+                if (i == PrefManager.accentIndex) setStroke((2.5f * d).toInt(), context.getColor(R.color.glass_ink))
             }
             sw.setOnClickListener {
                 if (i != PrefManager.accentIndex) {
