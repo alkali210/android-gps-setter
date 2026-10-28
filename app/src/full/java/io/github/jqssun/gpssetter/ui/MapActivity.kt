@@ -35,6 +35,14 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     private var mMarker: Marker? = null
     private val coordinates by lazy { GoogleMapCoordinates(viewModel.mapType) }
 
+    override fun onResume() {
+        super.onResume()
+        if (::mMap.isInitialized) {
+            val selectedType = viewModel.mapType
+            if (mMap.mapType != selectedType) mMap.mapType = selectedType
+        }
+    }
+
     override fun hasMarker(): Boolean {
         return mMarker?.isVisible == true
     }
