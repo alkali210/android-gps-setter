@@ -50,7 +50,7 @@ This fork installs as `io.github.varma322.gpssetter`, alongside upstream (`io.gi
 
 Use **Play route (GPX)** in the drawer to choose a track and playback speed. While it runs, the bottom **Static / Route** panel is hidden and the home **Start / Stop** control is greyed out and disabled. The map remains movable, but map taps, search and favorite selection cannot place a new pin.
 
-When playback finishes, the home screen returns to **Static** with spoofing still enabled at the last route point and **Stop** available. Press **Stop** on the home screen to disable spoofing. **Stop route** in the drawer or playback notification only ends movement and holds the current point.
+When playback finishes, the home screen returns to **Static** with spoofing still enabled at the last route point and **Stop** available. The endpoint marker updates without changing the map's current zoom or viewport. Press **Stop** on the home screen to disable spoofing. **Stop route** in the drawer or playback notification only ends movement and holds the current point.
 
 ## How it works
 

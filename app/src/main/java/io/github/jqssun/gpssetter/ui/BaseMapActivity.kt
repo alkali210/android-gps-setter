@@ -155,6 +155,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
     protected abstract fun hasMarker(): Boolean
     protected abstract fun initializeMap()
     protected abstract fun setupButtons()
+    // Always sync the selected marker; moveNewLocation controls camera movement only.
     protected abstract fun moveMapToNewLocation(moveNewLocation: Boolean)
     protected abstract fun centerMapOnLocation(latitude: Double, longitude: Double)
 
@@ -202,7 +203,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
         if (wasGpxPlaying && !playing) {
             lat = PrefManager.getLat
             lon = PrefManager.getLng
-            moveMapToNewLocation(true)
+            moveMapToNewLocation(false)
         }
         if (!routeMode) {
             binding.startButton.visibility = if (viewModel.isStarted) View.GONE else View.VISIBLE

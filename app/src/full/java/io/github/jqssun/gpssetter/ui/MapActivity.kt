@@ -72,23 +72,22 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
 
     override fun moveMapToNewLocation(moveNewLocation: Boolean) {
         if (isGpxPlaying || !::mMap.isInitialized) return
+        val position = coordinates.toMap(lat, lon)
+        mLatLng = position
         if (moveNewLocation) {
-            mLatLng = coordinates.toMap(lat, lon)
-            mLatLng.let { latLng ->
-                mMap.animateCamera(CameraUpdateFactory.newCameraPosition(
-                        CameraPosition.Builder()
-                        .target(latLng!!)
-                        .zoom(12.0f)
-                        .bearing(0f)
-                        .tilt(0f)
-                        .build()
-                ))
-                mMarker?.apply {
-                    position = latLng
-                    isVisible = true
-                    showInfoWindow()
-                }
-            }
+            mMap.animateCamera(CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder()
+                    .target(position)
+                    .zoom(12.0f)
+                    .bearing(0f)
+                    .tilt(0f)
+                    .build()
+            ))
+        }
+        mMarker?.apply {
+            this.position = position
+            isVisible = true
+            if (moveNewLocation) showInfoWindow()
         }
     }
     override fun onMapReady(googleMap: GoogleMap) {

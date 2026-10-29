@@ -80,21 +80,19 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
 
     override fun moveMapToNewLocation(moveNewLocation: Boolean) {
         if (isGpxPlaying || !::mMap.isInitialized) return
+        val position = LatLng(lat, lon)
+        mLatLng = position
         if (moveNewLocation) {
-            mLatLng = LatLng(lat, lon)
-            mLatLng.let { latLng ->
-                // mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng!!, 12.0f.toDouble()))
-                mMap.animateCamera(CameraUpdateFactory.newCameraPosition(
-                        CameraPosition.Builder()
-                        .target(latLng!!)
-                        .zoom(12.0f.toDouble())
-                        .bearing(0f.toDouble())
-                        .tilt(0f.toDouble())
-                        .build()
-                ))
-                updateMarker(latLng)
-            }
+            mMap.animateCamera(CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder()
+                    .target(position)
+                    .zoom(12.0)
+                    .bearing(0.0)
+                    .tilt(0.0)
+                    .build()
+            ))
         }
+        updateMarker(position)
     }
     override fun onMapReady(mapLibreMap: MapLibreMap) {
         mMap = mapLibreMap
