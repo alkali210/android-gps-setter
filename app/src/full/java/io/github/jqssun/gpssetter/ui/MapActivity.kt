@@ -43,6 +43,11 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
         }
     }
 
+    override fun onPause() {
+        if (::mMap.isInitialized) viewModel.mapCameraPosition = mMap.cameraPosition
+        super.onPause()
+    }
+
     override fun hasMarker(): Boolean {
         return mMarker?.isVisible == true
     }
@@ -124,12 +129,18 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
                 mMarker = addMarker(
                     MarkerOptions().position(it!!).draggable(false).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)).visible(false)
                 )
-                mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(it, zoom))
+                val camera = viewModel.mapCameraPosition as? CameraPosition
+                if (camera != null) {
+                    mMap.moveCamera(CameraUpdateFactory.newCameraPosition(camera))
+                } else {
+                    mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(it, zoom))
+                }
             }
 
             
             setOnMapClickListener(this@MapActivity)
             if (viewModel.isStarted && !isGpxPlaying) updateMarker(mLatLng!!)
+            restoreGpxOverlay()
         }
     }
     override fun onMapClick(latLng: LatLng) {
@@ -156,15 +167,17 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     private var bMarker: Marker? = null
     private var travelerMarker: Marker? = null
 
-    override fun drawRoute(points: List<Pair<Double, Double>>) {
+    override fun drawRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean) {
         clearRoute()
         if (points.size < 2) return
         val lls = points.map { coordinates.toMap(it.first, it.second) }
         routeLine = mMap.addPolyline(PolylineOptions().addAll(lls).color(Accent.current().color).width(10f))
         aMarker = mMap.addMarker(MarkerOptions().position(lls.first()).icon(BitmapDescriptorFactory.fromBitmap(dotBitmap(0xFF22C55E.toInt()))))
         bMarker = mMap.addMarker(MarkerOptions().position(lls.last()).icon(BitmapDescriptorFactory.fromBitmap(dotBitmap(0xFFEF4444.toInt()))))
-        val bounds = LatLngBounds.Builder().apply { lls.forEach { include(it) } }.build()
-        mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120))
+        if (fitCamera) {
+            val bounds = LatLngBounds.Builder().apply { lls.forEach { include(it) } }.build()
+            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120))
+        }
     }
 
     override fun clearRoute() {

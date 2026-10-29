@@ -38,6 +38,11 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
     private var mLatLng: LatLng? = null
     private var mMarker: Marker? = null
 
+    override fun onPause() {
+        if (::mMap.isInitialized) viewModel.mapCameraPosition = mMap.cameraPosition
+        super.onPause()
+    }
+
     override fun hasMarker(): Boolean {
         // TODO: if (!mMarker?.isVisible!!){
         if (mMarker != null) {
@@ -112,11 +117,13 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
                         .build()
                     )
                     locationComponent.isLocationComponentEnabled = true
-                    locationComponent.cameraMode = CameraMode.TRACKING
+                    locationComponent.cameraMode = if (viewModel.mapCameraPosition != null) CameraMode.NONE else CameraMode.TRACKING
                     locationComponent.renderMode = RenderMode.COMPASS
                 } else {
                     ActivityCompat.requestPermissions(this@MapActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 99);
                 }
+                // Native annotations must be restored after the new theme's style is loaded.
+                restoreGpxOverlay()
             }
             // TODO: fix bug with drawer
             uiSettings.setAllGesturesEnabled(true)
@@ -138,7 +145,12 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
                 if (!isGpxPlaying) updateMarker(it)
                 // TODO: MarkerOptions().position(it!!)
                 // .draggable(false).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED).visible(false)
-                mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(it, zoom.toDouble()))
+                val camera = viewModel.mapCameraPosition as? CameraPosition
+                if (camera != null) {
+                    mMap.moveCamera(CameraUpdateFactory.newCameraPosition(camera))
+                } else {
+                    mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(it, zoom.toDouble()))
+                }
             }
 
             addOnMapClickListener(this@MapActivity)
@@ -172,7 +184,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
     private var bMarker: Marker? = null
     private var travelerMarker: Marker? = null
 
-    override fun drawRoute(points: List<Pair<Double, Double>>) {
+    override fun drawRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean) {
         clearRoute()
         if (points.size < 2) return
         val lls = points.map { LatLng(it.first, it.second) }
@@ -180,8 +192,10 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
         val ic = IconFactory.getInstance(this)
         aMarker = mMap.addMarker(MarkerOptions().position(lls.first()).icon(ic.fromBitmap(dotBitmap(0xFF22C55E.toInt()))))
         bMarker = mMap.addMarker(MarkerOptions().position(lls.last()).icon(ic.fromBitmap(dotBitmap(0xFFEF4444.toInt()))))
-        val bounds = LatLngBounds.Builder().includes(lls).build()
-        mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120))
+        if (fitCamera) {
+            val bounds = LatLngBounds.Builder().includes(lls).build()
+            mMap.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, 120))
+        }
     }
 
     override fun clearRoute() {

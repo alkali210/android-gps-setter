@@ -14,8 +14,9 @@ The changes below are relative to varma322's `v0.2.0`, not features newly introd
 - **Recenter without changing the selected location.** The centering button moves the camera to the location reported by the location provider without moving the selected pin or changing the spoofing target. It preserves zoom levels closer than 12 and zooms in to 12 only when farther out.
 - **GPX playback locks home-screen location editing.** The Static / Route panel is hidden, Start / Stop is greyed out and disabled, and map taps, search and favorite selection cannot replace the selected location during GPX playback. Finishing playback restores Static mode and leaves spoofing active at the endpoint until the home Stop button is pressed. Live preference reads and ordered writes keep the home controls in sync with playback completion.
 - **No camera reset after GPX playback.** Completion updates the endpoint pin without changing the map's zoom, center, bearing or tilt.
+- **GPX display survives theme changes.** Switching light/dark mode in Settings, or through the system while following its theme, restores the GPX route and the current map camera after the page is recreated, without fitting the route again or restarting playback.
 
-Coordinate-conversion and playback-transition regression tests accompany these changes. Tests do not establish compatibility with every map layer, ROM or Xposed implementation.
+Coordinate-conversion, playback-transition and theme-recreation regression tests accompany these changes. Tests do not establish compatibility with every map layer, ROM or Xposed implementation.
 
 ## Features inherited from upstream
 
@@ -65,7 +66,7 @@ When playback finishes, the home screen returns to **Static**, updates the endpo
 
 **Stop route** in the drawer, or **Stop** in the route playback notification, stops movement and holds the current point; it does not disable spoofing. These home-screen protections are specific to GPX playback and do not imply that every other control, such as a Quick Settings tile or the joystick, is locked.
 
-GPX playback state survives activity recreation while the service remains alive, but its route overlay is not restored automatically. The animated traveler/progress panel belongs to A-to-B playback, not GPX import.
+GPX geometry and the current camera are retained across theme/configuration recreation. The new map redraws the route without changing the saved zoom, center, bearing or tilt; FOSS restores the overlay after its new style has loaded. This display state is retained in memory, not persisted across process death. The animated traveler/progress panel belongs to A-to-B playback, not GPX import.
 
 ### A-to-B routes
 

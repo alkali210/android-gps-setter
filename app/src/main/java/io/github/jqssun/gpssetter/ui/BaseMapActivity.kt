@@ -134,7 +134,8 @@ abstract class BaseMapActivity: AppCompatActivity() {
             .setPositiveButton(R.string.play_route) { _, _ ->
                 val kmh = input.text.toString().toFloatOrNull()?.takeIf { it > 0f } ?: 50f
                 binding.modeToggle.check(R.id.mode_static)
-                drawRoute(route.map { it.lat to it.lng })
+                viewModel.gpxOverlay = route.map { it.lat to it.lng }
+                drawRoute(viewModel.gpxOverlay)
                 RoutePlaybackService.start(this, route, kmh / 3.6f, loop = false, gpx = true)
                 showToast(getString(R.string.route_started))
             }
@@ -160,9 +161,15 @@ abstract class BaseMapActivity: AppCompatActivity() {
     protected abstract fun centerMapOnLocation(latitude: Double, longitude: Double)
 
     // Route overlay (flavor-specific map): polyline + A/B markers, and a moving traveler dot.
-    protected abstract fun drawRoute(points: List<Pair<Double, Double>>)
+    protected abstract fun drawRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean = true)
     protected abstract fun clearRoute()
     protected abstract fun setTraveler(lat: Double, lng: Double)
+
+    protected fun restoreGpxOverlay() {
+        if (viewModel.gpxOverlay.isNotEmpty()) {
+            drawRoute(viewModel.gpxOverlay, fitCamera = false)
+        }
+    }
 
     // A circular marker bitmap (filled dot with a white ring) for A/B/traveler markers.
     protected fun dotBitmap(color: Int): android.graphics.Bitmap {
@@ -344,6 +351,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
         binding.routeStart.isEnabled = false
         travelerHandler.removeCallbacks(travelerTick)
         showSetup()
+        viewModel.gpxOverlay = emptyList()
         clearRoute()
     }
 

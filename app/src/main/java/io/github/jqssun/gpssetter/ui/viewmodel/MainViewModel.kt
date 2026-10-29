@@ -53,6 +53,10 @@ class MainViewModel @Inject constructor(
     val isStarted get() = prefManger.isStarted
     val mapType: Int get() = prefManger.mapType
 
+    // Display state survives theme/configuration recreation without copying GPX data into a Bundle.
+    var gpxOverlay: List<Pair<Double, Double>> = emptyList()
+    var mapCameraPosition: android.os.Parcelable? = null
+
 
     private val _allFavList = MutableStateFlow<List<Favorite>>(emptyList())
     val allFavList : StateFlow<List<Favorite>> =  _allFavList
