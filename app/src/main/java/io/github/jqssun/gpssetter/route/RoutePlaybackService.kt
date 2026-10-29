@@ -16,6 +16,9 @@ import androidx.core.app.NotificationManagerCompat
 import io.github.jqssun.gpssetter.R
 import io.github.jqssun.gpssetter.utils.PrefManager
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -27,7 +30,7 @@ import kotlinx.coroutines.launch
 // The hook reads lat/lng/altitude/speed/bearing from the mirrored settings, so apps see real motion.
 class RoutePlaybackService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob())
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var loopJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -51,6 +54,7 @@ class RoutePlaybackService : Service() {
 
         startForegroundSafely()
         loopJob?.cancel()
+        gpxPlayback.value = intent?.getBooleanExtra(EXTRA_GPX, false) == true
         loopJob = scope.launch { run(route, speed, loop) }
         return START_NOT_STICKY
     }
@@ -87,6 +91,7 @@ class RoutePlaybackService : Service() {
 
     private fun stopEverything() {
         loopJob?.cancel()
+        gpxPlayback.value = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
         stopSelf()
     }
@@ -94,6 +99,7 @@ class RoutePlaybackService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         scope.cancel()
+        gpxPlayback.value = false
     }
 
     // --- notification ---
@@ -133,6 +139,9 @@ class RoutePlaybackService : Service() {
         NotificationManagerCompat.from(this).notify(NOTIF_ID, build(progress))
 
     companion object {
+        private val gpxPlayback = MutableStateFlow(false)
+        val isGpxPlaying = gpxPlayback.asStateFlow()
+        private const val EXTRA_GPX = "gpx"
         private const val CHANNEL = "route.playback"
         private const val NOTIF_ID = 321
         const val ACTION_STOP = "io.github.jqssun.gpssetter.route.STOP"
@@ -142,14 +151,22 @@ class RoutePlaybackService : Service() {
         private const val EXTRA_SPEED = "speed"
         private const val EXTRA_LOOP = "loop"
 
-        fun start(context: Context, route: List<RoutePoint>, speedMps: Float, loop: Boolean) {
+        fun start(context: Context, route: List<RoutePoint>, speedMps: Float, loop: Boolean, gpx: Boolean = false) {
             val intent = Intent(context, RoutePlaybackService::class.java)
                 .putExtra(EXTRA_LAT, DoubleArray(route.size) { route[it].lat })
                 .putExtra(EXTRA_LNG, DoubleArray(route.size) { route[it].lng })
                 .putExtra(EXTRA_ELE, DoubleArray(route.size) { route[it].altitude })
                 .putExtra(EXTRA_SPEED, speedMps)
                 .putExtra(EXTRA_LOOP, loop)
-            context.startForegroundService(intent)
+                .putExtra(EXTRA_GPX, gpx)
+            val previous = gpxPlayback.value
+            gpxPlayback.value = gpx
+            try {
+                context.startForegroundService(intent)
+            } catch (e: RuntimeException) {
+                gpxPlayback.value = previous
+                throw e
+            }
         }
 
         fun stop(context: Context) {

@@ -8,10 +8,6 @@ import io.github.jqssun.gpssetter.BuildConfig
 import io.github.jqssun.gpssetter.gsApp
 import io.github.jqssun.gpssetter.xposed.Xshare
 import io.github.libxposed.service.XposedService
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 import timber.log.Timber
 
 
@@ -87,16 +83,14 @@ object PrefManager   {
 
     // route playback: move to a point with motion. start=true; mirror listener syncs to the hook.
     fun updateMotion(la: Double, ln: Double, altitude: Double, speed: Float, bearing: Float) {
-        runInBackground {
-            pref.edit()
-                .putLong(LATITUDE_D, la.toRawBits())
-                .putLong(LONGITUDE_D, ln.toRawBits())
-                .putBoolean(START, true)
-                .putLong(ALTITUDE, altitude.toRawBits())
-                .putFloat(SPEED, speed)
-                .putFloat(BEARING, bearing)
-                .apply()
-        }
+        pref.edit()
+            .putLong(LATITUDE_D, la.toRawBits())
+            .putLong(LONGITUDE_D, ln.toRawBits())
+            .putBoolean(START, true)
+            .putLong(ALTITUDE, altitude.toRawBits())
+            .putFloat(SPEED, speed)
+            .putFloat(BEARING, bearing)
+            .apply()
     }
 
 
@@ -149,25 +143,16 @@ object PrefManager   {
         set(value) = pref.edit().putInt(ACCENT, value).apply()
 
     fun update(start:Boolean, la: Double, ln: Double) {
-        runInBackground {
-            val prefEditor = pref.edit()
-            prefEditor.putLong(LATITUDE_D, la.toRawBits())
-            prefEditor.putLong(LONGITUDE_D, ln.toRawBits())
-            prefEditor.putBoolean(START, start)
-            // static spoof: clear any motion left over from route playback
-            prefEditor.putLong(ALTITUDE, 0.0.toRawBits())
-            prefEditor.putFloat(SPEED, 0f)
-            prefEditor.putFloat(BEARING, -1f)
-            prefEditor.apply()
-        }
-
+        // Update memory before publishing playback completion; apply persists asynchronously.
+        pref.edit()
+            .putLong(LATITUDE_D, la.toRawBits())
+            .putLong(LONGITUDE_D, ln.toRawBits())
+            .putBoolean(START, start)
+            .putLong(ALTITUDE, 0.0.toRawBits())
+            .putFloat(SPEED, 0f)
+            .putFloat(BEARING, -1f)
+            .apply()
     }
 
-    @OptIn(DelicateCoroutinesApi::class)
-    private fun runInBackground(method: suspend () -> Unit){
-        GlobalScope.launch(Dispatchers.IO) {
-            method.invoke()
-        }
-    }
 
 }

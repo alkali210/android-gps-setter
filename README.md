@@ -46,6 +46,12 @@ This fork installs as `io.github.varma322.gpssetter`, alongside upstream (`io.gi
 3. Reboot. System Framework hooks load at boot; per-app hooks only need that app restarted.
 4. Open GPS Setter, pick a location on the map and press ▶.
 
+### GPX route playback
+
+Use **Play route (GPX)** in the drawer to choose a track and playback speed. While it runs, the bottom **Static / Route** panel is hidden and the home **Start / Stop** control is greyed out and disabled. The map remains movable, but map taps, search and favorite selection cannot place a new pin.
+
+When playback finishes, the home screen returns to **Static** with spoofing still enabled at the last route point and **Stop** available. Press **Stop** on the home screen to disable spoofing. **Stop route** in the drawer or playback notification only ends movement and holds the current point.
+
 ## How it works
 
 - **System Framework.** Actively generates 1 Hz spoofed fixes to location providers (`gps`, `fused`, `network`) and rewrites incoming fixes in `LocationProviderManager.onReportLocation` (Android 12+), `LocationManagerService.getLastLocation` and `injectLocation`. While spoofing, it also refuses raw GNSS measurement, navigation and batching listeners.

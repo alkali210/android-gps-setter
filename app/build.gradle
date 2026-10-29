@@ -74,6 +74,9 @@ android {
         viewBinding true
         buildConfig true
     }
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
 
     flavorDimensions += "version"
     productFlavors {
@@ -135,4 +138,5 @@ dependencies {
     implementation 'com.github.lukkass222:virtual-joystick-android:1.13.5'
 
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
 }

@@ -48,9 +48,9 @@ class MainViewModel @Inject constructor(
     @ApplicationContext context: Context
 ) : ViewModel() {
 
-    val getLat  = prefManger.getLat
-    val getLng  = prefManger.getLng
-    val isStarted = prefManger.isStarted
+    val getLat get() = prefManger.getLat
+    val getLng get() = prefManger.getLng
+    val isStarted get() = prefManger.isStarted
     val mapType: Int get() = prefManger.mapType
 
 

@@ -71,6 +71,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     }
 
     override fun moveMapToNewLocation(moveNewLocation: Boolean) {
+        if (isGpxPlaying || !::mMap.isInitialized) return
         if (moveNewLocation) {
             mLatLng = coordinates.toMap(lat, lon)
             mLatLng.let { latLng ->
@@ -129,13 +130,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
 
             
             setOnMapClickListener(this@MapActivity)
-            if (viewModel.isStarted){
-                mMarker?.let {
-                    // TODO:
-                    // it.isVisible = true
-                    // it.showInfoWindow()
-                }
-            }
+            if (viewModel.isStarted && !isGpxPlaying) updateMarker(mLatLng!!)
         }
     }
     override fun onMapClick(latLng: LatLng) {
@@ -204,6 +199,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
         }
 
         binding.startButton.setOnClickListener {
+            if (isGpxPlaying) return@setOnClickListener
             viewModel.update(true, lat, lon)
             mLatLng.let {
                 updateMarker(it!!)
@@ -220,7 +216,8 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             showToast(getString(R.string.location_set))
         }
         binding.stopButton.setOnClickListener {
-            viewModel.update(false, lat, lon)
+            if (isGpxPlaying) return@setOnClickListener
+            viewModel.update(false, viewModel.getLat, viewModel.getLng)
             removeMarker()
             binding.stopButton.visibility = View.GONE
             binding.startButton.visibility = View.VISIBLE
