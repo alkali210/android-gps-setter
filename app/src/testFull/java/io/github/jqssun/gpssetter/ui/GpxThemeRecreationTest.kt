@@ -2,6 +2,9 @@ package io.github.jqssun.gpssetter.ui
 
 import android.content.res.Configuration
 import android.os.Looper
+import android.view.View
+import android.widget.TextView
+import io.github.jqssun.gpssetter.R
 import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.gms.dynamic.ObjectWrapper
 import com.google.android.gms.maps.CameraUpdateFactory
@@ -50,6 +53,18 @@ class GpxThemeRecreationTest {
             first.onMapReady(initialMap.map)
             // Represents the user's pan/zoom/rotation after importing the track.
             initialMap.camera = originalCamera
+            if (followSystem) {
+                first.findViewById<View>(R.id.stop_button).performClick()
+                service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 2)
+                shadowOf(Looper.getMainLooper()).idle()
+                repeat(3) { first.findViewById<View>(R.id.gpx_speed_plus).performClick() }
+                repeat(3) {
+                    service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 3)
+                }
+                shadowOf(Looper.getMainLooper()).idle()
+                assertTrue(RoutePlaybackService.gpxState.value!!.paused)
+                assertEquals(0f, PrefManager.speed)
+            }
 
             for (dark in listOf(true, false)) {
                 val previous = controller.get()
@@ -73,7 +88,21 @@ class GpxThemeRecreationTest {
                 assertEquals(originalCamera, restoredMap.camera)
                 assertEquals(listOf(route.map { GoogleMapCoordinates(PrefManager.mapType).toMap(it.first, it.second) }), restoredMap.routes)
                 assertEquals(0, restoredMap.fitBoundsCalls)
-                assertTrue(RoutePlaybackService.isGpxPlaying.value)
+                assertNotNull(RoutePlaybackService.gpxState.value)
+                assertTrue(PrefManager.isStarted)
+                assertEquals(followSystem, RoutePlaybackService.gpxState.value!!.paused)
+                assertEquals(View.VISIBLE, recreated.findViewById<View>(R.id.gpx_controls).visibility)
+                assertEquals(if (followSystem) View.VISIBLE else View.GONE, recreated.findViewById<View>(R.id.start_button).visibility)
+                assertEquals(recreated.getString(R.string.route_speed_fmt, if (followSystem) 66 else 36),
+                    recreated.findViewById<TextView>(R.id.gpx_speed_value).text.toString())
+            }
+            if (followSystem) {
+                val home = controller.get()
+                home.findViewById<View>(R.id.start_button).performClick()
+                service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 4)
+                shadowOf(Looper.getMainLooper()).idle()
+                assertFalse(RoutePlaybackService.gpxState.value!!.paused)
+                assertEquals(View.VISIBLE, home.findViewById<View>(R.id.stop_button).visibility)
                 assertTrue(PrefManager.isStarted)
             }
         } finally {

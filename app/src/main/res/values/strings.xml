@@ -40,6 +40,11 @@
     <string name="stop_route">Stop route</string>
     <string name="route_channel">Route playback</string>
     <string name="route_playing">Playing route</string>
+    <string name="route_paused">Route paused</string>
+    <string name="route_pause">Pause route</string>
+    <string name="route_resume">Resume route</string>
+    <string name="route_speed_decrease">Decrease speed</string>
+    <string name="route_speed_increase">Increase speed</string>
     <string name="route_empty">No track points in that file</string>
     <string name="route_started">Route started</string>
     <string name="route_speed_title">Speed (km/h)</string>

@@ -76,7 +76,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     }
 
     override fun moveMapToNewLocation(moveNewLocation: Boolean) {
-        if (isGpxPlaying || !::mMap.isInitialized) return
+        if (isGpxActive || !::mMap.isInitialized) return
         val position = coordinates.toMap(lat, lon)
         mLatLng = position
         if (moveNewLocation) {
@@ -139,7 +139,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
 
             
             setOnMapClickListener(this@MapActivity)
-            if (viewModel.isStarted && !isGpxPlaying) updateMarker(mLatLng!!)
+            if (viewModel.isStarted && !isGpxActive) updateMarker(mLatLng!!)
             restoreGpxOverlay()
         }
     }
@@ -211,7 +211,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
         }
 
         binding.startButton.setOnClickListener {
-            if (isGpxPlaying) return@setOnClickListener
+            if (handleGpxPlaybackClick(paused = false)) return@setOnClickListener
             viewModel.update(true, lat, lon)
             mLatLng.let {
                 updateMarker(it!!)
@@ -228,7 +228,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             showToast(getString(R.string.location_set))
         }
         binding.stopButton.setOnClickListener {
-            if (isGpxPlaying) return@setOnClickListener
+            if (handleGpxPlaybackClick(paused = true)) return@setOnClickListener
             viewModel.update(false, viewModel.getLat, viewModel.getLng)
             removeMarker()
             binding.stopButton.visibility = View.GONE

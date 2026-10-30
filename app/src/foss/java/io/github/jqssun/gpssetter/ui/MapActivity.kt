@@ -84,7 +84,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
     }
 
     override fun moveMapToNewLocation(moveNewLocation: Boolean) {
-        if (isGpxPlaying || !::mMap.isInitialized) return
+        if (isGpxActive || !::mMap.isInitialized) return
         val position = LatLng(lat, lon)
         mLatLng = position
         if (moveNewLocation) {
@@ -142,7 +142,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
             lon  = viewModel.getLng
             mLatLng = LatLng(lat, lon)
             mLatLng?.let {
-                if (!isGpxPlaying) updateMarker(it)
+                if (!isGpxActive) updateMarker(it)
                 // TODO: MarkerOptions().position(it!!)
                 // .draggable(false).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED).visible(false)
                 val camera = viewModel.mapCameraPosition as? CameraPosition
@@ -229,7 +229,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
         }
 
         binding.startButton.setOnClickListener {
-            if (isGpxPlaying) return@setOnClickListener
+            if (handleGpxPlaybackClick(paused = false)) return@setOnClickListener
             viewModel.update(true, lat, lon)
             mLatLng.let {
                 updateMarker(it!!)
@@ -246,7 +246,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
             showToast(getString(R.string.location_set))
         }
         binding.stopButton.setOnClickListener {
-            if (isGpxPlaying) return@setOnClickListener
+            if (handleGpxPlaybackClick(paused = true)) return@setOnClickListener
             viewModel.update(false, viewModel.getLat, viewModel.getLng)
             removeMarker()
             binding.stopButton.visibility = View.GONE

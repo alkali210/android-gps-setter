@@ -47,6 +47,7 @@ import io.github.jqssun.gpssetter.R
 import io.github.jqssun.gpssetter.adapter.FavListAdapter
 import io.github.jqssun.gpssetter.route.RouteMath
 import io.github.jqssun.gpssetter.route.RoutePlaybackService
+import io.github.jqssun.gpssetter.route.GpxPlaybackState
 import io.github.jqssun.gpssetter.route.RoutePoint
 import io.github.jqssun.gpssetter.route.Routing
 import io.github.jqssun.gpssetter.route.parseGpx
@@ -191,21 +192,22 @@ abstract class BaseMapActivity: AppCompatActivity() {
 
     // ---- Route mode (Static / Route toggle, A->B directions, playback) ----
     private var routeMode = false
-    protected val isGpxPlaying: Boolean get() = RoutePlaybackService.isGpxPlaying.value
+    protected val isGpxActive: Boolean get() = RoutePlaybackService.gpxState.value != null
     private var wasGpxPlaying = false
-    private val startIconTint by lazy { binding.startButton.iconTint }
-    private val stopIconTint by lazy { binding.stopButton.iconTint }
 
-    private fun renderGpxPlayback(playing: Boolean) {
+    private fun renderGpxPlayback(state: GpxPlaybackState?) {
+        val playing = state != null
         if (playing) binding.modeToggle.check(R.id.mode_static)
         // Keep the panel's layout anchor so the floating buttons stay on screen.
         binding.routePanel.visibility = if (playing) View.INVISIBLE else View.VISIBLE
-        binding.startButton.isEnabled = !playing
-        binding.stopButton.isEnabled = !playing
-        val startTint = startIconTint
-        val stopTint = stopIconTint
-        binding.startButton.iconTint = if (playing) android.content.res.ColorStateList.valueOf(Color.GRAY) else startTint
-        binding.stopButton.iconTint = if (playing) android.content.res.ColorStateList.valueOf(Color.GRAY) else stopTint
+        binding.gpxControls.visibility = if (playing) View.VISIBLE else View.GONE
+        binding.stopButton.setIconResource(if (playing) R.drawable.ic_pause else R.drawable.ic_stop)
+        binding.stopButton.contentDescription = getString(if (playing) R.string.route_pause else R.string.location_unset)
+        binding.startButton.contentDescription = getString(if (playing) R.string.route_resume else R.string.location_set)
+        if (state != null) {
+            binding.gpxSpeedValue.text = getString(R.string.route_speed_fmt, (state.speedMps * 3.6f).roundToInt())
+            binding.gpxSpeedMinus.isEnabled = state.speedMps * 3.6f > 1f
+        }
         binding.search.searchBox.isEnabled = !playing
         if (wasGpxPlaying && !playing) {
             lat = PrefManager.getLat
@@ -213,10 +215,21 @@ abstract class BaseMapActivity: AppCompatActivity() {
             moveMapToNewLocation(false)
         }
         if (!routeMode) {
-            binding.startButton.visibility = if (viewModel.isStarted) View.GONE else View.VISIBLE
-            binding.stopButton.visibility = if (viewModel.isStarted) View.VISIBLE else View.GONE
+            val showStart = state?.paused ?: !viewModel.isStarted
+            binding.startButton.visibility = if (showStart) View.VISIBLE else View.GONE
+            binding.stopButton.visibility = if (showStart) View.GONE else View.VISIBLE
         }
         wasGpxPlaying = playing
+    }
+
+    protected fun handleGpxPlaybackClick(paused: Boolean): Boolean {
+        if (!isGpxActive) return false
+        RoutePlaybackService.setPaused(this, paused)
+        return true
+    }
+
+    private fun changeGpxSpeed(deltaKmh: Int) {
+        if (isGpxActive) RoutePlaybackService.adjustSpeed(this, deltaKmh)
     }
     private var aPoint: Pair<Double, Double>? = null
     private var bPoint: Pair<Double, Double>? = null
@@ -254,6 +267,8 @@ abstract class BaseMapActivity: AppCompatActivity() {
         }
         binding.speedMinus.setOnClickListener { speedKmh = (speedKmh - 10).coerceAtLeast(5); updateSpeedLabel() }
         binding.speedPlus.setOnClickListener { speedKmh = (speedKmh + 10).coerceAtMost(300); updateSpeedLabel() }
+        binding.gpxSpeedMinus.setOnClickListener { changeGpxSpeed(-10) }
+        binding.gpxSpeedPlus.setOnClickListener { changeGpxSpeed(10) }
         binding.routeStart.setOnClickListener { startRoutePlayback() }
         binding.routeStop.setOnClickListener { stopRoutePlayback() }
         binding.routeCancel.setOnClickListener { resetRoute() }
@@ -272,7 +287,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
 
     // Flavors call this from onMapClick; returns true when route mode consumed the tap.
     protected fun onMapTapped(latTapped: Double, lngTapped: Double): Boolean {
-        if (isGpxPlaying) return true
+        if (isGpxActive) return true
         if (!routeMode) return false
         if (aPoint == null) {
             aPoint = latTapped to lngTapped
@@ -384,10 +399,10 @@ abstract class BaseMapActivity: AppCompatActivity() {
         setupButtons()
         setupDrawer()
         setupRouteMode()
-        renderGpxPlayback(isGpxPlaying)
+        renderGpxPlayback(RoutePlaybackService.gpxState.value)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                RoutePlaybackService.isGpxPlaying.collect { renderGpxPlayback(it) }
+                RoutePlaybackService.gpxState.collect { renderGpxPlayback(it) }
             }
         }
         // observe once; registering inside the Add dialog stacked an observer (and a toast) per save
@@ -452,7 +467,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
                                         }
                                         is SearchProgress.Complete -> {
                                             progress.visibility = View.GONE
-                                            if (isGpxPlaying) return@collect
+                                            if (isGpxActive) return@collect
                                             lat = result.lat
                                             lon = result.lon
                                             moveMapToNewLocation(true)
@@ -522,7 +537,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.updateXposedState()
-        renderGpxPlayback(isGpxPlaying)
+        renderGpxPlayback(RoutePlaybackService.gpxState.value)
     }
 
     protected fun aboutDialog(){
@@ -567,7 +582,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
         rcv.layoutManager = LinearLayoutManager(this)
         rcv.adapter = favListAdapter
         favListAdapter.onItemClick = favoriteClick@{
-            if (isGpxPlaying) return@favoriteClick
+            if (isGpxActive) return@favoriteClick
             it.let {
                 lat = it.lat!!
                 lon = it.lng!!

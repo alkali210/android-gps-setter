@@ -138,6 +138,52 @@
             android:visibility="gone" />
 
         <LinearLayout
+            android:id="@+id/gpx_controls"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:layout_centerHorizontal="true"
+            android:layout_marginBottom="24dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/search_box_background"
+            android:elevation="10dp"
+            android:padding="8dp"
+            android:visibility="gone">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/gpx_speed_minus"
+                style="@style/SpeedStepper"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:contentDescription="@string/route_speed_decrease"
+                android:text="−" />
+
+            <TextView
+                android:id="@+id/gpx_speed_value"
+                android:layout_width="112dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="@color/glass_ink"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:accessibilityLiveRegion="polite"
+                tools:text="50 km/h" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/gpx_speed_plus"
+                style="@style/SpeedStepper"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:contentDescription="@string/route_speed_increase"
+                android:text="+" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/route_panel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

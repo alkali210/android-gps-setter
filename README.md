@@ -12,7 +12,7 @@ The changes below are relative to varma322's `v0.2.0`, not features newly introd
 - **China coordinate handling and app-hook boundaries.** Full converts WGS-84 coordinates to GCJ-02 for Google map display, including the live blue dot, selected pins, routes and traveler markers. Map taps are converted back before saving or spoofing. App hooks modify Android-delivered fixes instead of globally overriding `Location` getters or `set`, so SDK-converted coordinates are not overwritten. See [coordinate limitations](#coordinates-and-map-limitations).
 - **Map-type changes without restarting the app.** In Full, returning from Settings applies the selected Google map type. All four map types use the same coordinate-conversion policy.
 - **Recenter without changing the selected location.** The centering button moves the camera to the location reported by the location provider without moving the selected pin or changing the spoofing target. It preserves zoom levels closer than 12 and zooms in to 12 only when farther out.
-- **GPX playback locks home-screen location editing.** The Static / Route panel is hidden, Start / Stop is greyed out and disabled, and map taps, search and favorite selection cannot replace the selected location during GPX playback. Finishing playback restores Static mode and leaves spoofing active at the endpoint until the home Stop button is pressed. Live preference reads and ordered writes keep the home controls in sync with playback completion.
+- **GPX playback controls and location protection.** The home Start / Stop control becomes Pause / Resume, and a compact speed stepper adjusts playback without restarting the route. The Static / Route panel stays hidden, and map taps, search and favorite selection cannot replace the selected location, including while paused. Finishing playback restores Static mode and leaves spoofing active at the endpoint until the home Stop button is pressed.
 - **No camera reset after GPX playback.** Completion updates the endpoint pin without changing the map's zoom, center, bearing or tilt.
 - **GPX display survives theme changes.** Switching light/dark mode in Settings, or through the system while following its theme, restores the GPX route and the current map camera after the page is recreated, without fitting the route again or restarting playback.
 
@@ -60,7 +60,11 @@ The centering button only moves the camera. The location provider may itself rep
 
 Choose **Play route (GPX)** in the drawer, select a file and enter a playback speed in km/h. The importer reads `trkpt`, `rtept` and `wpt` elements with optional elevation; at least two points are required. Playback uses the chosen speed with an initial acceleration ramp, **not the timestamps recorded in the GPX file**. The importer is a lightweight parser, not a full GPX/XML implementation; separate tracks/segments are flattened into one sequence.
 
-During playback, the home Static / Route panel is hidden and the home Start / Stop control is disabled and greyed out. You can move the map, but cannot place a new pin by tapping, searching or choosing a favorite.
+During playback, the home Static / Route panel is hidden. The existing home control shows **Pause** while moving and **Resume** while paused. Pausing holds the current position with spoofing still enabled; resuming continues from that point without counting the paused time as travel.
+
+The compact **− / speed / +** bar changes the target speed in 10 km/h steps, with a 1 km/h minimum for the stepper. It works while moving or paused, without restarting the track. The displayed speed is the selected target; movement ramps up toward it. Pause state and target speed survive light/dark theme changes along with the route and camera.
+
+You can move the map, but cannot place a new pin by tapping, searching or choosing a favorite until the GPX session ends, even while paused.
 
 When playback finishes, the home screen returns to **Static**, updates the endpoint marker and enables **Stop**. The camera stays where you left it. Spoofing remains active at the endpoint with motion cleared until you press the home **Stop** button.
 
