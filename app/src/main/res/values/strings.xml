@@ -48,6 +48,7 @@
     <string name="route_empty">No track points in that file</string>
     <string name="route_started">Route started</string>
     <string name="route_speed_title">Speed (km/h)</string>
+    <string name="route_speed_invalid">Enter a whole number of at least 1 km/h</string>
     <string name="tile_label">GPS Setter</string>
     <string name="stop">Stop</string>
     <string name="favorite_tile_1">Favorite 1</string>

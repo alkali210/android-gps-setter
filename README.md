@@ -62,15 +62,15 @@ Choose **Play route (GPX)** in the drawer, select a file and enter a playback sp
 
 During playback, the home Static / Route panel is hidden. The existing home control shows **Pause** while moving and **Resume** while paused. Pausing holds the current position with spoofing still enabled; resuming continues from that point without counting the paused time as travel.
 
-The compact **− / speed / +** bar changes the target speed in 10 km/h steps, with a 1 km/h minimum for the stepper. It works while moving or paused, without restarting the track. The displayed speed is the selected target; movement ramps up toward it. Pause state and target speed survive light/dark theme changes along with the route and camera.
+The compact **− / speed / +** bar changes the target speed in **5 km/h** steps. Tap the speed value to enter an exact whole-number speed in km/h (minimum **1 km/h**); confirm to apply it or cancel to leave it unchanged. Both methods work while moving or paused, without restarting the track. The displayed speed is the selected target; movement ramps up toward it. Pause state and target speed survive light/dark theme changes along with the route and camera.
 
 You can move the map, but cannot place a new pin by tapping, searching or choosing a favorite until the GPX session ends, even while paused.
 
-When playback finishes, the home screen returns to **Static**, updates the endpoint marker and enables **Stop**. The camera stays where you left it. Spoofing remains active at the endpoint with motion cleared until you press the home **Stop** button.
+When playback finishes, the home screen returns to **Static**, removes the GPX line and route markers, updates the endpoint marker and enables **Stop**. The camera stays where you left it. Spoofing remains active at the endpoint with motion cleared until you press the home **Stop** button.
 
-**Stop route** in the drawer, or **Stop** in the route playback notification, stops movement and holds the current point; it does not disable spoofing. These home-screen protections are specific to GPX playback and do not imply that every other control, such as a Quick Settings tile or the joystick, is locked.
+**Stop route** in the drawer, or **Stop** in the route playback notification, stops movement, clears the GPX overlay and holds the current point; it does not disable spoofing. Pausing keeps the overlay for later resumption. These home-screen protections are specific to GPX playback and do not imply that every other control, such as a Quick Settings tile or the joystick, is locked.
 
-GPX geometry and the current camera are retained across theme/configuration recreation. The new map redraws the route without changing the saved zoom, center, bearing or tilt; FOSS restores the overlay after its new style has loaded. This display state is retained in memory, not persisted across process death. The animated traveler/progress panel belongs to A-to-B playback, not GPX import.
+While the GPX session is active or paused, its geometry and the current camera are retained across theme/configuration recreation. The new map redraws the route without changing the saved zoom, center, bearing or tilt; FOSS restores the overlay after its new style has loaded. Ending the session also clears the cached geometry, so returning to the screen or changing themes cannot restore a finished route. This display state is retained in memory, not persisted across process death. The animated traveler/progress panel belongs to A-to-B playback, not GPX import.
 
 ### A-to-B routes
 

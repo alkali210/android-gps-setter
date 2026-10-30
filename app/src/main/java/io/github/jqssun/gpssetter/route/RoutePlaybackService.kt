@@ -65,7 +65,11 @@ class RoutePlaybackService : Service() {
                 }
                 ACTION_SPEED -> {
                     val deltaKmh = intent.getIntExtra(EXTRA_SPEED_DELTA, 0)
-                    val requested = (targetSpeed * 3.6f + deltaKmh).coerceAtLeast(1f) / 3.6f
+                    val requested = if (intent.hasExtra(EXTRA_SPEED)) {
+                        intent.getFloatExtra(EXTRA_SPEED, targetSpeed)
+                    } else {
+                        (targetSpeed * 3.6f + deltaKmh).coerceAtLeast(1f) / 3.6f
+                    }
                     if (requested.isFinite() && requested > 0f) {
                         targetSpeed = requested
                         gpxPlayback.value = state.copy(speedMps = requested)
@@ -221,6 +225,12 @@ class RoutePlaybackService : Service() {
         fun adjustSpeed(context: Context, deltaKmh: Int) {
             context.startService(Intent(context, RoutePlaybackService::class.java)
                 .setAction(ACTION_SPEED).putExtra(EXTRA_SPEED_DELTA, deltaKmh))
+        }
+
+        fun setSpeed(context: Context, kmh: Int) {
+            if (kmh < 1) return
+            context.startService(Intent(context, RoutePlaybackService::class.java)
+                .setAction(ACTION_SPEED).putExtra(EXTRA_SPEED, kmh / 3.6f))
         }
 
         fun stop(context: Context) {

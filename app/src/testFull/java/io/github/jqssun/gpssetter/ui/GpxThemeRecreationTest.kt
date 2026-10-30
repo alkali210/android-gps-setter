@@ -3,7 +3,6 @@ package io.github.jqssun.gpssetter.ui
 import android.content.res.Configuration
 import android.os.Looper
 import android.view.View
-import android.widget.TextView
 import io.github.jqssun.gpssetter.R
 import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.gms.dynamic.ObjectWrapper
@@ -27,6 +26,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
@@ -34,6 +34,57 @@ class GpxThemeRecreationTest {
     @Test fun explicitThemeRecreationRetainsRouteAndCamera() = exerciseRecreation(false)
 
     @Test fun followSystemRecreationRetainsRouteAndCamera() = exerciseRecreation(true)
+
+    @Test fun completionClearsRouteWithoutMovingCamera() = exerciseRouteEnd(false)
+
+    @Test fun stoppingPausedRouteInBackgroundClearsItOnReturn() = exerciseRouteEnd(true)
+
+    private fun exerciseRouteEnd(stopInBackground: Boolean) {
+        installMapFactories()
+        val controller = Robolectric.buildActivity(MapActivity::class.java).setup()
+        val service = Robolectric.buildService(RoutePlaybackService::class.java).create()
+        try {
+            val home = controller.get()
+            val route = listOf(0.0 to 0.0, 0.0 to 0.00001)
+            val model = BaseMapActivity::class.java.getDeclaredMethod("getViewModel").apply { isAccessible = true }.invoke(home) as MainViewModel
+            model.gpxOverlay = route
+            RoutePlaybackService.start(home, route.map { RoutePoint(it.first, it.second) }, 10f, false, gpx = true)
+            service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 1)
+            shadowOf(Looper.getMainLooper()).idle()
+            val camera = CameraPosition(LatLng(1.0, 2.0), 17f, 30f, 60f)
+            val surface = MapSurface(camera)
+            home.onMapReady(surface.map)
+            surface.camera = camera
+            assertEquals(listOf(route.map { LatLng(it.first, it.second) }), surface.routes)
+            if (stopInBackground) {
+                RoutePlaybackService.setPaused(home, true)
+                service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 2)
+                shadowOf(Looper.getMainLooper()).idle()
+                assertEquals(listOf(route.map { LatLng(it.first, it.second) }), surface.routes)
+                controller.pause().stop()
+                RoutePlaybackService.stop(home)
+                service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 3)
+                shadowOf(Looper.getMainLooper()).idle()
+                controller.start().resume().visible()
+            } else {
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+            }
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(surface.routes.isEmpty())
+            assertTrue(model.gpxOverlay.isEmpty())
+            assertEquals(camera, surface.camera)
+            assertTrue(PrefManager.isStarted)
+            assertEquals(if (stopInBackground) 0.0 else 0.00001, PrefManager.getLng, 0.0)
+            controller.recreate()
+            val restored = MapSurface(CameraPosition(LatLng(0.0, 0.0), 2f, 0f, 0f))
+            controller.get().onMapReady(restored.map)
+            assertTrue(restored.routes.isEmpty())
+            assertEquals(camera, restored.camera)
+        } finally {
+            service.destroy()
+            controller.pause().stop().destroy()
+        }
+    }
 
     private fun exerciseRecreation(followSystem: Boolean) {
         installMapFactories()
@@ -93,8 +144,8 @@ class GpxThemeRecreationTest {
                 assertEquals(followSystem, RoutePlaybackService.gpxState.value!!.paused)
                 assertEquals(View.VISIBLE, recreated.findViewById<View>(R.id.gpx_controls).visibility)
                 assertEquals(if (followSystem) View.VISIBLE else View.GONE, recreated.findViewById<View>(R.id.start_button).visibility)
-                assertEquals(recreated.getString(R.string.route_speed_fmt, if (followSystem) 66 else 36),
-                    recreated.findViewById<TextView>(R.id.gpx_speed_value).text.toString())
+                assertEquals(if (followSystem) 51f / 3.6f else 10f,
+                    RoutePlaybackService.gpxState.value!!.speedMps, 0.00001f)
             }
             if (followSystem) {
                 val home = controller.get()
@@ -121,12 +172,20 @@ class GpxThemeRecreationTest {
 
         init {
             val constructor = GoogleMap::class.java.constructors.single()
+            val polylineType = constructor.parameterTypes.single().methods.single { it.name == "addPolyline" }.returnType
+            val removePolyline = polylineType.methods.single { it.returnType == Void.TYPE && it.parameterCount == 0 }.name
             val delegate = proxy(constructor.parameterTypes.single()) { name, args ->
                 when (name) {
                     "getCameraPosition" -> camera
                     "addPolyline" -> {
-                        routes.add((args!![0] as PolylineOptions).points.toList())
-                        Unhandled
+                        val points = (args!![0] as PolylineOptions).points.toList()
+                        routes.add(points)
+                        proxy(polylineType) { method, _ ->
+                            if (method == removePolyline) {
+                                routes.remove(points)
+                                null
+                            } else Unhandled
+                        }
                     }
                     "moveCamera", "animateCamera" -> {
                         val update = ObjectWrapper.unwrap<Any>(args!![0] as com.google.android.gms.dynamic.IObjectWrapper)

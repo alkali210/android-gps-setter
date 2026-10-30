@@ -167,7 +167,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
     protected abstract fun setTraveler(lat: Double, lng: Double)
 
     protected fun restoreGpxOverlay() {
-        if (viewModel.gpxOverlay.isNotEmpty()) {
+        if (isGpxActive && viewModel.gpxOverlay.isNotEmpty()) {
             drawRoute(viewModel.gpxOverlay, fitCamera = false)
         }
     }
@@ -209,7 +209,9 @@ abstract class BaseMapActivity: AppCompatActivity() {
             binding.gpxSpeedMinus.isEnabled = state.speedMps * 3.6f > 1f
         }
         binding.search.searchBox.isEnabled = !playing
-        if (wasGpxPlaying && !playing) {
+        if (!playing && (wasGpxPlaying || viewModel.gpxOverlay.isNotEmpty())) {
+            viewModel.gpxOverlay = emptyList()
+            clearRoute()
             lat = PrefManager.getLat
             lon = PrefManager.getLng
             moveMapToNewLocation(false)
@@ -230,6 +232,36 @@ abstract class BaseMapActivity: AppCompatActivity() {
 
     private fun changeGpxSpeed(deltaKmh: Int) {
         if (isGpxActive) RoutePlaybackService.adjustSpeed(this, deltaKmh)
+    }
+
+    private fun editGpxSpeed() {
+        val state = RoutePlaybackService.gpxState.value ?: return
+        val input = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText((state.speedMps * 3.6f).roundToInt().toString())
+            selectAll()
+        }
+        val inset = (24 * resources.displayMetrics.density).roundToInt()
+        val speedDialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.route_speed_title)
+            .setView(input, inset, 0, inset, 0)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok, null)
+            .create()
+        speedDialog.setOnShowListener {
+            input.requestFocus()
+            speedDialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+            speedDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val kmh = input.text.toString().trim().toIntOrNull()
+                if (kmh == null || kmh < 1) {
+                    input.error = getString(R.string.route_speed_invalid)
+                } else {
+                    if (isGpxActive) RoutePlaybackService.setSpeed(this, kmh)
+                    speedDialog.dismiss()
+                }
+            }
+        }
+        speedDialog.show()
     }
     private var aPoint: Pair<Double, Double>? = null
     private var bPoint: Pair<Double, Double>? = null
@@ -267,8 +299,9 @@ abstract class BaseMapActivity: AppCompatActivity() {
         }
         binding.speedMinus.setOnClickListener { speedKmh = (speedKmh - 10).coerceAtLeast(5); updateSpeedLabel() }
         binding.speedPlus.setOnClickListener { speedKmh = (speedKmh + 10).coerceAtMost(300); updateSpeedLabel() }
-        binding.gpxSpeedMinus.setOnClickListener { changeGpxSpeed(-10) }
-        binding.gpxSpeedPlus.setOnClickListener { changeGpxSpeed(10) }
+        binding.gpxSpeedMinus.setOnClickListener { changeGpxSpeed(-5) }
+        binding.gpxSpeedPlus.setOnClickListener { changeGpxSpeed(5) }
+        binding.gpxSpeedValue.setOnClickListener { editGpxSpeed() }
         binding.routeStart.setOnClickListener { startRoutePlayback() }
         binding.routeStop.setOnClickListener { stopRoutePlayback() }
         binding.routeCancel.setOnClickListener { resetRoute() }

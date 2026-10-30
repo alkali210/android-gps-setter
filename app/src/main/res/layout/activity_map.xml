@@ -164,7 +164,10 @@
             <TextView
                 android:id="@+id/gpx_speed_value"
                 android:layout_width="112dp"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
                 android:gravity="center"
                 android:textColor="@color/glass_ink"
                 android:textSize="18sp"
