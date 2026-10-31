@@ -16,6 +16,7 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.LocationSource
+import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
 
 /** Converts only the blue-dot copy, never the provider fix consumed by the rest of the app. */
 internal class GoogleMapLocationSource(
@@ -26,6 +27,15 @@ internal class GoogleMapLocationSource(
     private val client = LocationServices.getFusedLocationProviderClient(context)
     private var listener: LocationSource.OnLocationChangedListener? = null
     private var requesting = false
+    private var intervalMs = LocationUpdateInterval.DEFAULT_MS
+
+    fun setUpdateInterval(value: Long) {
+        val interval = LocationUpdateInterval.normalize(value)
+        if (interval == intervalMs) return
+        stop()
+        intervalMs = interval
+        start()
+    }
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
             val fix = result.lastLocation ?: return
@@ -59,8 +69,8 @@ internal class GoogleMapLocationSource(
         if (requesting || listener == null || !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         requesting = true
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
-            .setMinUpdateIntervalMillis(500L)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
+            .setMinUpdateIntervalMillis(intervalMs)
             .build()
         client.requestLocationUpdates(request, callback, Looper.getMainLooper())
             .addOnFailureListener {

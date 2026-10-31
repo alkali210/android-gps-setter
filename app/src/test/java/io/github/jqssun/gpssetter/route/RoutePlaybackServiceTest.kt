@@ -93,7 +93,7 @@ class RoutePlaybackServiceTest {
             deliver()
             advance(1)
             val resumed = RoutePoint(PrefManager.getLat, PrefManager.getLng)
-            assertEquals(5.0, RouteMath.pathLength(listOf(held, resumed)), 0.1)
+            assertEquals(2.5, RouteMath.pathLength(listOf(held, resumed)), 0.1)
             advance(3)
             assertEquals(20f, PrefManager.speed)
             val beforeSlowing = RoutePoint(PrefManager.getLat, PrefManager.getLng)

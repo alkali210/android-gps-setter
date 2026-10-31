@@ -7,6 +7,7 @@ import androidx.lifecycle.MutableLiveData
 import io.github.jqssun.gpssetter.BuildConfig
 import io.github.jqssun.gpssetter.gsApp
 import io.github.jqssun.gpssetter.xposed.Xshare
+import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
 import io.github.libxposed.service.XposedService
 import timber.log.Timber
 
@@ -73,6 +74,7 @@ object PrefManager   {
             .putLong(ALTITUDE, altitude.toRawBits())
             .putFloat(SPEED, speed)
             .putFloat(BEARING, bearing)
+            .putLong(LocationUpdateInterval.KEY, locationUpdateIntervalMs)
             .apply()
     }
 
@@ -80,6 +82,10 @@ object PrefManager   {
         get() = if (pref.contains(ALTITUDE)) Double.fromBits(pref.getLong(ALTITUDE, 0)) else 0.0
     val speed: Float get() = pref.getFloat(SPEED, 0f)
     val bearing: Float get() = pref.getFloat(BEARING, -1f)
+
+    var locationUpdateIntervalMs: Long
+        get() = LocationUpdateInterval.normalize(pref.getLong(LocationUpdateInterval.KEY, LocationUpdateInterval.DEFAULT_MS))
+        set(value) { pref.edit().putLong(LocationUpdateInterval.KEY, LocationUpdateInterval.normalize(value)).apply() }
 
     // route playback: move to a point with motion. start=true; mirror listener syncs to the hook.
     fun updateMotion(la: Double, ln: Double, altitude: Double, speed: Float, bearing: Float) {
@@ -151,6 +157,7 @@ object PrefManager   {
             .putLong(ALTITUDE, 0.0.toRawBits())
             .putFloat(SPEED, 0f)
             .putFloat(BEARING, -1f)
+            .putLong(LocationUpdateInterval.KEY, LocationUpdateInterval.DEFAULT_MS)
             .apply()
     }
 

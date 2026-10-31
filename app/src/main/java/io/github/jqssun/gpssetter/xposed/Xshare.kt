@@ -46,4 +46,7 @@ class Xshare(private val prefs: SharedPreferences) {
     val bearing: Float
     get() = prefs.getFloat("bearing", -1f)
 
+    val locationUpdateIntervalMs: Long
+        get() = LocationUpdateInterval.normalize(prefs.getLong(LocationUpdateInterval.KEY, LocationUpdateInterval.DEFAULT_MS))
+
 }

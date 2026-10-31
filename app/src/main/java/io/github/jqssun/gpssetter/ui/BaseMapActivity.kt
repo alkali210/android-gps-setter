@@ -48,6 +48,7 @@ import io.github.jqssun.gpssetter.adapter.FavListAdapter
 import io.github.jqssun.gpssetter.route.RouteMath
 import io.github.jqssun.gpssetter.route.RoutePlaybackService
 import io.github.jqssun.gpssetter.route.GpxPlaybackState
+import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
 import io.github.jqssun.gpssetter.route.RoutePoint
 import io.github.jqssun.gpssetter.route.Routing
 import io.github.jqssun.gpssetter.route.parseGpx
@@ -125,22 +126,34 @@ abstract class BaseMapActivity: AppCompatActivity() {
         }
 
     private fun askSpeedAndPlay(route: List<io.github.jqssun.gpssetter.route.RoutePoint>) {
-        val input = EditText(this).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText("50")
+        val fields = layoutInflater.inflate(R.layout.dialog_gpx_playback, null)
+        val speed = fields.findViewById<EditText>(R.id.gpx_setup_speed)
+        val interval = fields.findViewById<EditText>(R.id.gpx_update_interval).apply {
+            setText(LocationUpdateInterval.DEFAULT_MS.toString())
         }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.route_speed_title)
-            .setView(input)
-            .setPositiveButton(R.string.play_route) { _, _ ->
-                val kmh = input.text.toString().toFloatOrNull()?.takeIf { it > 0f } ?: 50f
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.play_route)
+            .setView(fields)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.play_route, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val kmh = speed.text.toString().trim().toIntOrNull()
+                val intervalMs = interval.text.toString().trim().toLongOrNull()
+                speed.error = if (kmh == null || kmh < 1) getString(R.string.route_speed_invalid) else null
+                interval.error = if (intervalMs == null || intervalMs !in LocationUpdateInterval.MIN_MS..LocationUpdateInterval.MAX_MS)
+                    getString(R.string.route_update_interval_invalid, LocationUpdateInterval.MIN_MS, LocationUpdateInterval.MAX_MS) else null
+                if (speed.error != null || interval.error != null) return@setOnClickListener
                 binding.modeToggle.check(R.id.mode_static)
                 viewModel.gpxOverlay = route.map { it.lat to it.lng }
                 drawRoute(viewModel.gpxOverlay)
-                RoutePlaybackService.start(this, route, kmh / 3.6f, loop = false, gpx = true)
+                RoutePlaybackService.start(this, route, kmh!! / 3.6f, loop = false, gpx = true, updateIntervalMs = intervalMs!!)
+                dialog.dismiss()
                 showToast(getString(R.string.route_started))
             }
-            .show()
+        }
+        dialog.show()
     }
 
     private val elevationOverlayProvider by lazy {
@@ -160,6 +173,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
     // Always sync the selected marker; moveNewLocation controls camera movement only.
     protected abstract fun moveMapToNewLocation(moveNewLocation: Boolean)
     protected abstract fun centerMapOnLocation(latitude: Double, longitude: Double)
+    protected abstract fun setLocationUpdateInterval(intervalMs: Long)
 
     // Route overlay (flavor-specific map): polyline + A/B markers, and a moving traveler dot.
     protected abstract fun drawRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean = true)
@@ -197,6 +211,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
 
     private fun renderGpxPlayback(state: GpxPlaybackState?) {
         val playing = state != null
+        setLocationUpdateInterval(state?.updateIntervalMs ?: LocationUpdateInterval.DEFAULT_MS)
         if (playing) binding.modeToggle.check(R.id.mode_static)
         // Keep the panel's layout anchor so the floating buttons stay on screen.
         binding.routePanel.visibility = if (playing) View.INVISIBLE else View.VISIBLE

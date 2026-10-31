@@ -30,6 +30,7 @@ object LocationHook {
     private lateinit var settings: Xshare
     @Volatile private var mLastUpdated: Long = 0
     @Volatile private var started = false
+    @Volatile private var updateIntervalMs = LocationUpdateInterval.DEFAULT_MS
     private val ignorePkg = arrayListOf("com.android.location.fused", BuildConfig.APPLICATION_ID)
 
     // Cached provider managers (e.g. "gps", "fused", "network") for generating fake fixes in system_server
@@ -45,7 +46,7 @@ object LocationHook {
 
     // re-reads settings (and re-rolls the random offset) at most once per interval, so start/stop and new locations apply without a reboot
     private fun isActive(interval: Int): Boolean {
-        if (System.currentTimeMillis() - mLastUpdated > interval) {
+        if (System.currentTimeMillis() - mLastUpdated >= minOf(interval.toLong(), updateIntervalMs)) {
             updateLocation()
         }
         return started
@@ -55,6 +56,7 @@ object LocationHook {
     private fun updateLocation() {
         try {
             mLastUpdated = System.currentTimeMillis()
+            updateIntervalMs = settings.locationUpdateIntervalMs
             val now = settings.isStarted
             if (now != started) module.log(Log.INFO, TAG, "Spoofing ${if (now) "on" else "off"}")
             started = now
@@ -179,7 +181,7 @@ object LocationHook {
         } catch (_: Throwable) {}
     }
 
-    // Actively feeds spoofed fixes to providers at 1 Hz so Google Play services and listeners have fresh GPS fixes
+    // Supply missing provider fixes at the same cadence as the app's coordinate updates.
     private fun startFixGenerator(classLoader: ClassLoader, lmsClass: Class<*>, lpmClass: Class<*>, emergencyField: Field?) {
         if (generatorStarted) return
         generatorStarted = true
@@ -191,14 +193,18 @@ object LocationHook {
 
         Thread({
             module.log(Log.INFO, TAG, "Started fake fix generator loop")
+            var lastAttempt = 0L
+            val targets = arrayOf(LocationManager.GPS_PROVIDER, LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER)
             while (true) {
                 try {
-                    Thread.sleep(250)
+                    val cadence = updateIntervalMs
+                    val elapsed = SystemClock.elapsedRealtime() - maxOf(lastGpsReportTime, lastAttempt)
+                    Thread.sleep(if (started) (cadence - elapsed).coerceIn(1L, 250L) else 250L)
                     if (!isActive(200)) continue
 
                     val now = SystemClock.elapsedRealtime()
-                    // If a fix was reported in the last 900ms (e.g. from real GPS), avoid duplicate bursts
-                    if (now - lastGpsReportTime < 900) continue
+                    if (now - maxOf(lastGpsReportTime, lastAttempt) < updateIntervalMs) continue
+                    lastAttempt = now
 
                     // Never generate fake fixes during an active emergency call/SMS
                     val inEmerg = providerManagers.values.any { inEmergency(emergencyField?.get(it)) }
@@ -208,21 +214,13 @@ object LocationHook {
                         tryResolveProviders(classLoader, lmsClass, lpmClass)
                     }
 
-                    val targets = listOf(
-                        LocationManager.GPS_PROVIDER,
-                        LocationManager.FUSED_PROVIDER,
-                        LocationManager.NETWORK_PROVIDER
-                    )
-
                     var deliveredGps = false
                     for (name in targets) {
                         val manager = providerManagers[name] ?: continue
                         try {
                             val fakeLoc = fakeLocation(provider = name)
                             val res = wrapLocationResult(resultClass, fakeLoc) ?: continue
-                            // ponytail: calls @GuardedBy("mMultiplexerLock") off-thread without the lock;
-                            // fine at 1 Hz, could race real traffic on the multiplexer. Acquire that
-                            // private lock reflectively if contention ever shows up.
+                            // Use the provider's normal delivery path, including its listener filtering.
                             onReportLocation.invoke(manager, res)
                             if (name == LocationManager.GPS_PROVIDER) deliveredGps = true
                         } catch (t: Throwable) {

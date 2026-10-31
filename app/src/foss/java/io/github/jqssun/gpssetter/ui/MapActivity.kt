@@ -29,6 +29,9 @@ import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.OnMapReadyCallback
 import org.maplibre.android.maps.SupportMapFragment
+import org.maplibre.android.location.engine.LocationEngineRequest
+import io.github.jqssun.gpssetter.route.RoutePlaybackService
+import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
 
 typealias CustomLatLng = LatLng
 
@@ -37,6 +40,19 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
     private lateinit var mMap: MapLibreMap
     private var mLatLng: LatLng? = null
     private var mMarker: Marker? = null
+
+    override fun setLocationUpdateInterval(intervalMs: Long) {
+        if (!::mMap.isInitialized || !mMap.locationComponent.isLocationComponentActivated) return
+        val component = mMap.locationComponent
+        if (component.locationEngineRequest.interval != intervalMs) {
+            component.locationEngineRequest = locationRequest(intervalMs)
+        }
+    }
+
+    private fun locationRequest(intervalMs: Long) = LocationEngineRequest.Builder(intervalMs)
+        .setFastestInterval(intervalMs)
+        .setPriority(LocationEngineRequest.PRIORITY_HIGH_ACCURACY)
+        .build()
 
     override fun onPause() {
         if (::mMap.isInitialized) viewModel.mapCameraPosition = mMap.cameraPosition
@@ -114,6 +130,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
                     locationComponent.activateLocationComponent(
                         LocationComponentActivationOptions.builder(this@MapActivity, style)
                         .useDefaultLocationEngine(true)
+                        .locationEngineRequest(locationRequest(RoutePlaybackService.gpxState.value?.updateIntervalMs ?: LocationUpdateInterval.DEFAULT_MS))
                         .build()
                     )
                     locationComponent.isLocationComponentEnabled = true

@@ -3,6 +3,9 @@ package io.github.jqssun.gpssetter.ui
 import android.content.res.Configuration
 import android.os.Looper
 import android.view.View
+import android.widget.EditText
+import androidx.appcompat.app.AlertDialog
+import org.robolectric.shadows.ShadowDialog
 import io.github.jqssun.gpssetter.R
 import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.gms.dynamic.ObjectWrapper
@@ -16,6 +19,7 @@ import io.github.jqssun.gpssetter.route.RoutePlaybackService
 import io.github.jqssun.gpssetter.route.RoutePoint
 import io.github.jqssun.gpssetter.ui.viewmodel.MainViewModel
 import io.github.jqssun.gpssetter.utils.PrefManager
+import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,6 +43,39 @@ class GpxThemeRecreationTest {
 
     @Test fun stoppingPausedRouteInBackgroundClearsItOnReturn() = exerciseRouteEnd(true)
 
+    @Test fun gpxSetupRejectsInvalidIntervalsAndStartsWithSelectedCadence() {
+        installMapFactories()
+        val controller = Robolectric.buildActivity(MapActivity::class.java).setup()
+        val service = Robolectric.buildService(RoutePlaybackService::class.java).create()
+        try {
+            val home = controller.get()
+            home.onMapReady(MapSurface(CameraPosition(LatLng(0.0, 0.0), 12f, 0f, 0f)).map)
+            BaseMapActivity::class.java.getDeclaredMethod("askSpeedAndPlay", List::class.java)
+                .apply { isAccessible = true }
+                .invoke(home, listOf(RoutePoint(0.0, 0.0), RoutePoint(0.0, 1.0)))
+            shadowOf(Looper.getMainLooper()).idle()
+            val dialog = ShadowDialog.getLatestDialog() as AlertDialog
+            val input = dialog.findViewById<EditText>(R.id.gpx_update_interval)!!
+            for (invalid in listOf("", "99", "10001")) {
+                input.setText(invalid)
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+                assertTrue(dialog.isShowing)
+                assertNull(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService)
+            }
+            input.setText("2000")
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            assertFalse(dialog.isShowing)
+            service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 1)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(2000L, PrefManager.locationUpdateIntervalMs)
+            assertEquals(2000L, RoutePlaybackService.gpxState.value!!.updateIntervalMs)
+            assertTrue(PrefManager.isStarted)
+        } finally {
+            service.destroy()
+            controller.pause().stop().destroy()
+        }
+    }
+
     private fun exerciseRouteEnd(stopInBackground: Boolean) {
         installMapFactories()
         val controller = Robolectric.buildActivity(MapActivity::class.java).setup()
@@ -48,7 +85,7 @@ class GpxThemeRecreationTest {
             val route = listOf(0.0 to 0.0, 0.0 to 0.00001)
             val model = BaseMapActivity::class.java.getDeclaredMethod("getViewModel").apply { isAccessible = true }.invoke(home) as MainViewModel
             model.gpxOverlay = route
-            RoutePlaybackService.start(home, route.map { RoutePoint(it.first, it.second) }, 10f, false, gpx = true)
+            RoutePlaybackService.start(home, route.map { RoutePoint(it.first, it.second) }, 10f, false, gpx = true, updateIntervalMs = 200L)
             service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 1)
             shadowOf(Looper.getMainLooper()).idle()
             val camera = CameraPosition(LatLng(1.0, 2.0), 17f, 30f, 60f)
@@ -74,6 +111,7 @@ class GpxThemeRecreationTest {
             assertTrue(model.gpxOverlay.isEmpty())
             assertEquals(camera, surface.camera)
             assertTrue(PrefManager.isStarted)
+            assertEquals(LocationUpdateInterval.DEFAULT_MS, PrefManager.locationUpdateIntervalMs)
             assertEquals(if (stopInBackground) 0.0 else 0.00001, PrefManager.getLng, 0.0)
             controller.recreate()
             val restored = MapSurface(CameraPosition(LatLng(0.0, 0.0), 2f, 0f, 0f))
@@ -96,7 +134,8 @@ class GpxThemeRecreationTest {
             val route = listOf(17.0 to 78.0, 18.0 to 79.0)
             val model = BaseMapActivity::class.java.getDeclaredMethod("getViewModel").apply { isAccessible = true }.invoke(first) as MainViewModel
             model.gpxOverlay = route
-            RoutePlaybackService.start(first, route.map { RoutePoint(it.first, it.second) }, 10f, false, gpx = true)
+            val intervalMs = if (followSystem) 200L else 2000L
+            RoutePlaybackService.start(first, route.map { RoutePoint(it.first, it.second) }, 10f, false, gpx = true, updateIntervalMs = intervalMs)
             service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 1)
             shadowOf(Looper.getMainLooper()).idle()
             val originalCamera = CameraPosition(LatLng(18.25, 79.5), 17.5f, 35f, 75f)
@@ -142,6 +181,8 @@ class GpxThemeRecreationTest {
                 assertNotNull(RoutePlaybackService.gpxState.value)
                 assertTrue(PrefManager.isStarted)
                 assertEquals(followSystem, RoutePlaybackService.gpxState.value!!.paused)
+                assertEquals(intervalMs, RoutePlaybackService.gpxState.value!!.updateIntervalMs)
+                assertEquals(intervalMs, PrefManager.locationUpdateIntervalMs)
                 assertEquals(View.VISIBLE, recreated.findViewById<View>(R.id.gpx_controls).visibility)
                 assertEquals(if (followSystem) View.VISIBLE else View.GONE, recreated.findViewById<View>(R.id.start_button).visibility)
                 assertEquals(if (followSystem) 51f / 3.6f else 10f,
@@ -153,6 +194,8 @@ class GpxThemeRecreationTest {
                 service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 4)
                 shadowOf(Looper.getMainLooper()).idle()
                 assertFalse(RoutePlaybackService.gpxState.value!!.paused)
+                assertEquals(intervalMs, RoutePlaybackService.gpxState.value!!.updateIntervalMs)
+                assertEquals(intervalMs, PrefManager.locationUpdateIntervalMs)
                 assertEquals(View.VISIBLE, home.findViewById<View>(R.id.stop_button).visibility)
                 assertTrue(PrefManager.isStarted)
             }

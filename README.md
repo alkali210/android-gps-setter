@@ -15,6 +15,7 @@ The changes below are relative to varma322's `v0.2.0`, not features newly introd
 - **GPX playback controls and location protection.** The home Start / Stop control becomes Pause / Resume, and a compact speed stepper adjusts playback without restarting the route. The Static / Route panel stays hidden, and map taps, search and favorite selection cannot replace the selected location, including while paused. Finishing playback restores Static mode and leaves spoofing active at the endpoint until the home Stop button is pressed.
 - **No camera reset after GPX playback.** Completion updates the endpoint pin without changing the map's zoom, center, bearing or tilt.
 - **GPX display survives theme changes.** Switching light/dark mode in Settings, or through the system while following its theme, restores the GPX route and the current map camera after the page is recreated, without fitting the route again or restarting playback.
+- **Configurable GPX coordinate cadence.** The setup dialog selects the update interval shared by route playback, the system-hook generator and both map location requests. Changing the cadence changes sampling frequency, not travel speed.
 
 Coordinate-conversion, playback-transition and theme-recreation regression tests accompany these changes. Tests do not establish compatibility with every map layer, ROM or Xposed implementation.
 
@@ -58,7 +59,11 @@ The centering button only moves the camera. The location provider may itself rep
 
 ### GPX route playback
 
-Choose **Play route (GPX)** in the drawer, select a file and enter a playback speed in km/h. The importer reads `trkpt`, `rtept` and `wpt` elements with optional elevation; at least two points are required. Playback uses the chosen speed with an initial acceleration ramp, **not the timestamps recorded in the GPX file**. The importer is a lightweight parser, not a full GPX/XML implementation; separate tracks/segments are flattened into one sequence.
+Choose **Play route (GPX)** in the drawer, select a file and set **Speed (km/h)** and **Update interval (ms)**. The interval defaults to **1000 ms** and accepts **100–10000 ms** (for example, 200 ms requests five updates per second). It is selected for that GPX session, retained while paused and across theme changes, and reset to 1000 ms when playback finishes or stops. Static and A-to-B playback keep the default cadence.
+
+The app uses this interval for coordinate writes and both map providers' location requests, and mirrors it to the system Hook for generated fixes and cache freshness. Actual callback delivery still depends on Android/provider throttling, real GPS reports and the receiving app's request; this is not a guarantee that every app receives exactly that many callbacks. Restart scoped apps and reboot after installing the updated Hook code; subsequent GPX interval changes do not require a reboot.
+
+The importer reads `trkpt`, `rtept` and `wpt` elements with optional elevation; at least two points are required. Playback uses the chosen speed with an initial acceleration ramp, **not the timestamps recorded in the GPX file**. Distance is integrated over elapsed time so changing the update interval does not change travel speed. The importer is a lightweight parser, not a full GPX/XML implementation; separate tracks/segments are flattened into one sequence.
 
 During playback, the home Static / Route panel is hidden. The existing home control shows **Pause** while moving and **Resume** while paused. Pausing holds the current position with spoofing still enabled; resuming continues from that point without counting the paused time as travel.
 
@@ -86,7 +91,7 @@ Add the GPS Setter tiles through Android's Quick Settings editor. The general ti
 
 ## How location spoofing works
 
-- **System Framework:** hooks Android's location service and, on Android 12+, provider delivery through `LocationProviderManager.onReportLocation`. A generator supplies approximately 1 Hz fixes to GPS, network and fused providers so listeners can receive updates even without a fresh physical GPS fix. Raw GNSS measurement, navigation and batching listeners are also restricted while spoofing.
+- **System Framework:** hooks Android's location service and, on Android 12+, provider delivery through `LocationProviderManager.onReportLocation`. A generator supplies fixes to GPS, network and fused providers so listeners can receive updates even without a fresh physical GPS fix. It uses the selected GPX interval during a session and approximately 1 Hz otherwise, avoiding duplicate generated bursts when real GPS reports are arriving. Raw GNSS measurement, navigation and batching listeners are also restricted while spoofing.
 - **Scoped apps:** hooks `LocationManager.getLastKnownLocation` and framework listener/current-location transports. It leaves `Location` getters and copying alone. PendingIntent delivery and Play-services or SDK-owned paths outside those transports are not covered by these app-side hooks; use the System Framework path where needed.
 - **Emergency handling:** the Android 14+ system-provider path checks the platform's emergency helper and skips rewriting/generating fixes when it reports an emergency. This is not a guarantee for every Android version, ROM or location-delivery path; do not rely on a spoofing module for emergency-location safety.
 

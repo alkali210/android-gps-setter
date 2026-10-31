@@ -25,10 +25,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
 
-data class GpxPlaybackState(val paused: Boolean, val speedMps: Float)
+data class GpxPlaybackState(val paused: Boolean, val speedMps: Float, val updateIntervalMs: Long)
 
-// Foreground service that walks a route and feeds moving fixes through PrefManager at ~1 Hz.
+// Foreground service that feeds moving fixes at the selected coordinate update interval.
 // The hook reads lat/lng/altitude/speed/bearing from the mirrored settings, so apps see real motion.
 class RoutePlaybackService : Service() {
 
@@ -38,6 +39,7 @@ class RoutePlaybackService : Service() {
     private var currentSpeed = 0.0
     private var lastTick = 0L
     private var progress = 0
+    private var updateIntervalMs = LocationUpdateInterval.DEFAULT_MS
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -94,7 +96,12 @@ class RoutePlaybackService : Service() {
         targetSpeed = speed
         currentSpeed = 0.0
         progress = 0
-        gpxPlayback.value = if (intent?.getBooleanExtra(EXTRA_GPX, false) == true) GpxPlaybackState(false, speed) else null
+        val gpx = intent?.getBooleanExtra(EXTRA_GPX, false) == true
+        updateIntervalMs = if (gpx) LocationUpdateInterval.normalize(
+            intent?.getLongExtra(EXTRA_INTERVAL, LocationUpdateInterval.DEFAULT_MS) ?: LocationUpdateInterval.DEFAULT_MS
+        ) else LocationUpdateInterval.DEFAULT_MS
+        PrefManager.locationUpdateIntervalMs = updateIntervalMs
+        gpxPlayback.value = if (gpx) GpxPlaybackState(false, speed, updateIntervalMs) else null
         startForegroundSafely()
         loopJob = scope.launch { run(route, loop) }
         return START_NOT_STICKY
@@ -109,11 +116,17 @@ class RoutePlaybackService : Service() {
             val dt = (now - lastTick) / 1000.0
             lastTick = now
             if (gpxPlayback.value?.paused == true) {
-                delay(1000)
+                delay(updateIntervalMs)
                 continue
             }
-            currentSpeed = (currentSpeed + targetSpeed / 4.0 * dt).coerceAtMost(targetSpeed.toDouble())
-            distance += currentSpeed * dt
+            // Integrate the acceleration ramp, rather than multiplying by its final speed.
+            // Changing the sampling interval must not change the distance travelled.
+            val acceleration = targetSpeed / 4.0
+            currentSpeed = currentSpeed.coerceAtMost(targetSpeed.toDouble())
+            val accelerating = ((targetSpeed - currentSpeed) / acceleration).coerceIn(0.0, dt)
+            distance += currentSpeed * accelerating + acceleration * accelerating * accelerating / 2 +
+                targetSpeed * (dt - accelerating)
+            currentSpeed = (currentSpeed + acceleration * dt).coerceAtMost(targetSpeed.toDouble())
             if (distance >= total) {
                 if (loop) {
                     distance = 0.0
@@ -126,15 +139,19 @@ class RoutePlaybackService : Service() {
             }
             RouteMath.pointAtDistance(route, distance)?.let { fix ->
                 PrefManager.updateMotion(fix.lat, fix.lng, fix.altitude, currentSpeed.toFloat(), fix.bearing)
-                progress = if (total > 0) (distance / total * 100).toInt().coerceIn(0, 100) else 0
-                notify(progress)
+                val nextProgress = if (total > 0) (distance / total * 100).toInt().coerceIn(0, 100) else 0
+                if (nextProgress != progress) {
+                    progress = nextProgress
+                    notify(progress)
+                }
             }
-            delay(1000)
+            delay(updateIntervalMs)
         }
     }
 
     private fun stopEverything() {
         loopJob?.cancel()
+        PrefManager.locationUpdateIntervalMs = LocationUpdateInterval.DEFAULT_MS
         gpxPlayback.value = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
         stopSelf()
@@ -143,6 +160,7 @@ class RoutePlaybackService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         scope.cancel()
+        PrefManager.locationUpdateIntervalMs = LocationUpdateInterval.DEFAULT_MS
         gpxPlayback.value = null
     }
 
@@ -198,8 +216,11 @@ class RoutePlaybackService : Service() {
         private const val EXTRA_SPEED = "speed"
         private const val EXTRA_SPEED_DELTA = "speed_delta_kmh"
         private const val EXTRA_LOOP = "loop"
+        private const val EXTRA_INTERVAL = "update_interval_ms"
 
-        fun start(context: Context, route: List<RoutePoint>, speedMps: Float, loop: Boolean, gpx: Boolean = false) {
+        fun start(context: Context, route: List<RoutePoint>, speedMps: Float, loop: Boolean, gpx: Boolean = false,
+                  updateIntervalMs: Long = LocationUpdateInterval.DEFAULT_MS) {
+            val cadence = if (gpx) LocationUpdateInterval.normalize(updateIntervalMs) else LocationUpdateInterval.DEFAULT_MS
             val intent = Intent(context, RoutePlaybackService::class.java)
                 .putExtra(EXTRA_LAT, DoubleArray(route.size) { route[it].lat })
                 .putExtra(EXTRA_LNG, DoubleArray(route.size) { route[it].lng })
@@ -207,8 +228,9 @@ class RoutePlaybackService : Service() {
                 .putExtra(EXTRA_SPEED, speedMps)
                 .putExtra(EXTRA_LOOP, loop)
                 .putExtra(EXTRA_GPX, gpx)
+                .putExtra(EXTRA_INTERVAL, cadence)
             val previous = gpxPlayback.value
-            gpxPlayback.value = if (gpx) GpxPlaybackState(false, speedMps) else null
+            gpxPlayback.value = if (gpx) GpxPlaybackState(false, speedMps, cadence) else null
             try {
                 context.startForegroundService(intent)
             } catch (e: RuntimeException) {

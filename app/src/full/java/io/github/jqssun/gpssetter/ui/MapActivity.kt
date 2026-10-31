@@ -25,6 +25,8 @@ import io.github.jqssun.gpssetter.utils.Accent
 import io.github.jqssun.gpssetter.utils.ext.getAddress
 import io.github.jqssun.gpssetter.utils.ext.showToast
 import kotlinx.coroutines.launch
+import io.github.jqssun.gpssetter.route.RoutePlaybackService
+import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
 
 typealias CustomLatLng = LatLng
 
@@ -34,6 +36,11 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     private var mLatLng: LatLng? = null
     private var mMarker: Marker? = null
     private val coordinates by lazy { GoogleMapCoordinates(viewModel.mapType) }
+    private var mapLocationSource: GoogleMapLocationSource? = null
+
+    override fun setLocationUpdateInterval(intervalMs: Long) {
+        mapLocationSource?.setUpdateInterval(intervalMs)
+    }
 
     override fun onResume() {
         super.onResume()
@@ -97,7 +104,10 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     }
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
-        mMap.setLocationSource(GoogleMapLocationSource(this, lifecycle, coordinates))
+        val source = GoogleMapLocationSource(this, lifecycle, coordinates)
+        mapLocationSource = source
+        source.setUpdateInterval(RoutePlaybackService.gpxState.value?.updateIntervalMs ?: LocationUpdateInterval.DEFAULT_MS)
+        mMap.setLocationSource(source)
         with(mMap){
 
             
