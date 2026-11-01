@@ -41,6 +41,7 @@
     <string name="route_channel">Route playback</string>
     <string name="route_playing">Playing route</string>
     <string name="route_paused">Route paused</string>
+    <string name="route_distance_progress">%1$s / %2$s</string>
     <string name="route_pause">Pause route</string>
     <string name="route_resume">Resume route</string>
     <string name="route_speed_decrease">Decrease speed</string>

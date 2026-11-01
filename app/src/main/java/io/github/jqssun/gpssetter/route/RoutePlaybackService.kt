@@ -26,6 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
+import kotlin.math.roundToInt
 
 data class GpxPlaybackState(val paused: Boolean, val speedMps: Float, val updateIntervalMs: Long)
 
@@ -39,6 +40,9 @@ class RoutePlaybackService : Service() {
     private var currentSpeed = 0.0
     private var lastTick = 0L
     private var progress = 0
+    private var travelledMeters = 0.0
+    private var totalMeters = 0.0
+    private var lastNotificationTime = 0L
     private var updateIntervalMs = LocationUpdateInterval.DEFAULT_MS
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -78,7 +82,7 @@ class RoutePlaybackService : Service() {
                     }
                 }
             }
-            notify(progress)
+            updateNotification()
             return START_NOT_STICKY
         }
         val lats = intent?.getDoubleArrayExtra(EXTRA_LAT)
@@ -96,6 +100,8 @@ class RoutePlaybackService : Service() {
         targetSpeed = speed
         currentSpeed = 0.0
         progress = 0
+        travelledMeters = 0.0
+        totalMeters = RouteMath.pathLength(route)
         val gpx = intent?.getBooleanExtra(EXTRA_GPX, false) == true
         updateIntervalMs = if (gpx) LocationUpdateInterval.normalize(
             intent?.getLongExtra(EXTRA_INTERVAL, LocationUpdateInterval.DEFAULT_MS) ?: LocationUpdateInterval.DEFAULT_MS
@@ -108,7 +114,7 @@ class RoutePlaybackService : Service() {
     }
 
     private suspend fun run(route: List<RoutePoint>, loop: Boolean) {
-        val total = RouteMath.pathLength(route)
+        val total = totalMeters
         var distance = 0.0
         lastTick = SystemClock.elapsedRealtime()
         while (scope.isActive) {
@@ -138,11 +144,12 @@ class RoutePlaybackService : Service() {
                 }
             }
             RouteMath.pointAtDistance(route, distance)?.let { fix ->
+                travelledMeters = distance.coerceIn(0.0, total)
                 PrefManager.updateMotion(fix.lat, fix.lng, fix.altitude, currentSpeed.toFloat(), fix.bearing)
                 val nextProgress = if (total > 0) (distance / total * 100).toInt().coerceIn(0, 100) else 0
-                if (nextProgress != progress) {
+                if (nextProgress != progress || (gpxPlayback.value != null && now - lastNotificationTime >= 1000L)) {
                     progress = nextProgress
-                    notify(progress)
+                    updateNotification()
                 }
             }
             delay(updateIntervalMs)
@@ -172,7 +179,7 @@ class RoutePlaybackService : Service() {
             .also { NotificationManagerCompat.from(this).createNotificationChannel(it) }
     }
 
-    private fun build(progress: Int): Notification {
+    private fun build(): Notification {
         ensureChannel()
         val stop = PendingIntent.getService(
             this, 0, Intent(this, RoutePlaybackService::class.java).setAction(ACTION_STOP),
@@ -181,15 +188,21 @@ class RoutePlaybackService : Service() {
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_play)
             .setContentTitle(getString(if (gpxPlayback.value?.paused == true) R.string.route_paused else R.string.route_playing))
-            .setContentText("$progress%")
+            .setContentText(if (gpxPlayback.value != null) {
+                getString(R.string.route_distance_progress, formatDistance(travelledMeters), formatDistance(totalMeters))
+            } else "$progress%")
             .setOngoing(true)
             .setProgress(100, progress, false)
             .addAction(R.drawable.ic_stop, getString(R.string.stop), stop)
             .build()
     }
 
+    private fun formatDistance(meters: Double): String =
+        if (meters >= 1000) String.format("%.1f km", meters / 1000) else "${meters.roundToInt()} m"
+
     private fun startForegroundSafely() {
-        val n = build(0)
+        val n = build()
+        lastNotificationTime = SystemClock.elapsedRealtime()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
@@ -197,8 +210,10 @@ class RoutePlaybackService : Service() {
         }
     }
 
-    private fun notify(progress: Int) =
-        NotificationManagerCompat.from(this).notify(NOTIF_ID, build(progress))
+    private fun updateNotification() {
+        lastNotificationTime = SystemClock.elapsedRealtime()
+        NotificationManagerCompat.from(this).notify(NOTIF_ID, build())
+    }
 
     companion object {
         private val gpxPlayback = MutableStateFlow<GpxPlaybackState?>(null)
