@@ -49,6 +49,12 @@ class RoutePlaybackService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            // A stale drawer/notification action must not activate the last stored location.
+            // Paused playback still owns an active job and must remain stoppable.
+            if (loopJob?.isActive != true) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
             PrefManager.update(true, PrefManager.getLat, PrefManager.getLng) // freeze at current point, clear motion
             stopEverything()
             return START_NOT_STICKY

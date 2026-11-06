@@ -32,6 +32,8 @@ class RoutePlaybackServiceTest {
             assertEquals(route.last().lng, PrefManager.getLng, 0.0)
             assertEquals(0f, PrefManager.speed)
             PrefManager.update(false, PrefManager.getLat, PrefManager.getLng)
+            RoutePlaybackService.stop(context)
+            controller.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 2)
             shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
             assertFalse(PrefManager.isStarted)
             assertEquals(route.last().lat, PrefManager.getLat, 0.0)
@@ -59,6 +61,42 @@ class RoutePlaybackServiceTest {
             assertEquals(0f, PrefManager.speed)
         } finally {
             controller.destroy()
+        }
+    }
+
+    @Test fun idleStopDoesNotActivateCachedLocation() = assertIdleStopPreservesLocation(false)
+
+    @Test fun idleStopDoesNotModifyActiveStaticLocation() = assertIdleStopPreservesLocation(true)
+
+    private fun assertIdleStopPreservesLocation(started: Boolean) {
+        val context: Context = RuntimeEnvironment.getApplication()
+        PrefManager.update(started, 17.123, 78.456)
+        val controller = Robolectric.buildService(RoutePlaybackService::class.java).create()
+        try {
+            repeat(2) { index ->
+                RoutePlaybackService.stop(context)
+                controller.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, index + 1)
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+                assertEquals(started, PrefManager.isStarted)
+                assertEquals(17.123, PrefManager.getLat, 0.0)
+                assertEquals(78.456, PrefManager.getLng, 0.0)
+                assertNull(RoutePlaybackService.gpxState.value)
+                assertFalse(RoutePlaybackService.isPlaying.value)
+            }
+        } finally {
+            controller.destroy()
+        }
+        // Creating a new service (as after the old one was stopped) must not change this.
+        val restarted = Robolectric.buildService(RoutePlaybackService::class.java).create()
+        try {
+            RoutePlaybackService.stop(context)
+            restarted.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 3)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(started, PrefManager.isStarted)
+            assertEquals(17.123, PrefManager.getLat, 0.0)
+            assertEquals(78.456, PrefManager.getLng, 0.0)
+        } finally {
+            restarted.destroy()
         }
     }
 
@@ -129,6 +167,8 @@ class RoutePlaybackServiceTest {
             assertNull(RoutePlaybackService.gpxState.value)
             assertTrue(PrefManager.isStarted)
             PrefManager.update(false, PrefManager.getLat, lng)
+            RoutePlaybackService.stop(context)
+            deliver()
             RoutePlaybackService.setPaused(context, false)
             deliver()
             RoutePlaybackService.adjustSpeed(context, 36)
