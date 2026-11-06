@@ -89,6 +89,8 @@
     <!-- SettingActivity -->
     <string name="xposed">Xposed</string>
     <string name="settings">Settings</string>
+    <string name="keep_screen_on_during_route">Keep screen on during routes</string>
+    <string name="keep_screen_on_during_route_summary">Keep the map screen awake while playing a Route or GPX route. Allow sleep when paused or stopped.</string>
     <string name="settings_of_accuracy">Accuracy</string>
     <string name="preference_category_general">General</string>
     <string name="enter_valid_input">Enter a valid number</string>

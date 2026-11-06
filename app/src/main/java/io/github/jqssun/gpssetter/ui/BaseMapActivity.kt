@@ -17,6 +17,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.TextView
@@ -453,6 +454,11 @@ abstract class BaseMapActivity: AppCompatActivity() {
                 RoutePlaybackService.gpxState.collect { renderGpxPlayback(it) }
             }
         }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                RoutePlaybackService.isPlaying.collect { updateKeepScreenOn() }
+            }
+        }
         // observe once; registering inside the Add dialog stacked an observer (and a toast) per save
         viewModel.response.observe(this) {
             showToast(getString(if (it == (-1).toLong()) R.string.cant_save else R.string.save))
@@ -584,8 +590,22 @@ abstract class BaseMapActivity: AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        updateKeepScreenOn()
         viewModel.updateXposedState()
         renderGpxPlayback(RoutePlaybackService.gpxState.value)
+    }
+
+    override fun onPause() {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        super.onPause()
+    }
+
+    private fun updateKeepScreenOn() {
+        if (PrefManager.keepScreenOnDuringRoute && RoutePlaybackService.isPlaying.value) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     protected fun aboutDialog(){

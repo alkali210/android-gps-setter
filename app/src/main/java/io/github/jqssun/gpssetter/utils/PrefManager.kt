@@ -28,6 +28,7 @@ object PrefManager   {
     private const val DARK_THEME = "dark_theme"
     private const val DISABLE_UPDATE = "update_disabled"
     private const val ENABLE_JOYSTICK = "joystick_enabled"
+    private const val KEEP_SCREEN_ON_DURING_ROUTE = "keep_screen_on_during_route"
     private const val ACCENT = "accent_color"
     // motion, set during route playback; static spoofing leaves these at the defaults below
     private const val ALTITUDE = "altitude_d" // Double bits
@@ -143,6 +144,10 @@ object PrefManager   {
     var isJoystickEnabled: Boolean
         get() = pref.getBoolean(ENABLE_JOYSTICK, false)
         set(value) = pref.edit().putBoolean(ENABLE_JOYSTICK, value).apply()
+
+    var keepScreenOnDuringRoute: Boolean
+        get() = pref.getBoolean(KEEP_SCREEN_ON_DURING_ROUTE, false)
+        set(value) = pref.edit().putBoolean(KEEP_SCREEN_ON_DURING_ROUTE, value).apply()
 
     var accentIndex: Int
         get() = pref.getInt(ACCENT, 0) // default Blue

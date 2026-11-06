@@ -64,10 +64,12 @@ class RoutePlaybackService : Service() {
                     currentSpeed = 0.0
                     PrefManager.updateMotion(PrefManager.getLat, PrefManager.getLng, PrefManager.altitude, 0f, PrefManager.bearing)
                     gpxPlayback.value = state.copy(paused = true)
+                    playbackRunning.value = false
                 }
                 ACTION_RESUME -> if (state.paused) {
                     lastTick = SystemClock.elapsedRealtime()
                     gpxPlayback.value = state.copy(paused = false)
+                    playbackRunning.value = true
                 }
                 ACTION_SPEED -> {
                     val deltaKmh = intent.getIntExtra(EXTRA_SPEED_DELTA, 0)
@@ -109,6 +111,7 @@ class RoutePlaybackService : Service() {
         PrefManager.locationUpdateIntervalMs = updateIntervalMs
         gpxPlayback.value = if (gpx) GpxPlaybackState(false, speed, updateIntervalMs) else null
         startForegroundSafely()
+        playbackRunning.value = true
         loopJob = scope.launch { run(route, loop) }
         return START_NOT_STICKY
     }
@@ -158,6 +161,7 @@ class RoutePlaybackService : Service() {
 
     private fun stopEverything() {
         loopJob?.cancel()
+        playbackRunning.value = false
         PrefManager.locationUpdateIntervalMs = LocationUpdateInterval.DEFAULT_MS
         gpxPlayback.value = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
@@ -167,6 +171,7 @@ class RoutePlaybackService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         scope.cancel()
+        playbackRunning.value = false
         PrefManager.locationUpdateIntervalMs = LocationUpdateInterval.DEFAULT_MS
         gpxPlayback.value = null
     }
@@ -216,6 +221,9 @@ class RoutePlaybackService : Service() {
     }
 
     companion object {
+        // Shared by A-to-B and GPX playback; paused GPX sessions are not running.
+        private val playbackRunning = MutableStateFlow(false)
+        val isPlaying = playbackRunning.asStateFlow()
         private val gpxPlayback = MutableStateFlow<GpxPlaybackState?>(null)
         val gpxState = gpxPlayback.asStateFlow()
         private const val ACTION_PAUSE = "io.github.jqssun.gpssetter.route.PAUSE"

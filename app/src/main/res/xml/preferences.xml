@@ -37,6 +37,14 @@
             android:key="update_disabled"
             android:defaultValue="false" />
 
+        <SwitchPreferenceCompat
+            android:title="@string/keep_screen_on_during_route"
+            android:summary="@string/keep_screen_on_during_route_summary"
+            android:icon="@drawable/ic_screen_on"
+            android:widgetLayout="@layout/preference_switch_widget"
+            android:key="keep_screen_on_during_route"
+            android:defaultValue="false" />
+
         <Preference
             android:title="@string/enable_joystick"
             android:summary="@string/enable_joystick_summary"

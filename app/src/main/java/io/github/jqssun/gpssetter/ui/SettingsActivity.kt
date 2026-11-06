@@ -51,6 +51,7 @@ class ActivitySettings : AppCompatActivity() {
                 "random_position" -> PrefManager.isRandomPosition
                 "update_disabled" -> PrefManager.isUpdateDisabled
                 "joystick_enabled" -> PrefManager.isJoystickEnabled
+                "keep_screen_on_during_route" -> PrefManager.keepScreenOnDuringRoute
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
@@ -61,6 +62,7 @@ class ActivitySettings : AppCompatActivity() {
                 "random_position" -> PrefManager.isRandomPosition = value
                 "update_disabled" -> PrefManager.isUpdateDisabled = value
                 "joystick_enabled" -> PrefManager.isJoystickEnabled = value
+                "keep_screen_on_during_route" -> PrefManager.keepScreenOnDuringRoute = value
                 else -> throw IllegalArgumentException("Invalid key $key")
             }
         }
