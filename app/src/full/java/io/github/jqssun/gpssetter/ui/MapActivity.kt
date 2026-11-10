@@ -21,6 +21,7 @@ import com.google.android.gms.maps.model.Polyline
 import com.google.android.gms.maps.model.PolylineOptions
 import io.github.jqssun.gpssetter.R
 import io.github.jqssun.gpssetter.utils.Accent
+import io.github.jqssun.gpssetter.utils.PrefManager
 import io.github.jqssun.gpssetter.utils.ext.getAddress
 import io.github.jqssun.gpssetter.utils.ext.showToast
 import kotlinx.coroutines.launch
@@ -70,6 +71,10 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             }
         }
     }
+    // pref values 1..4 are GoogleMap.MAP_TYPE_NORMAL / SATELLITE / TERRAIN / HYBRID
+    override fun applyMapType() {
+        if (::mMap.isInitialized) mMap.mapType = PrefManager.mapType
+    }
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
         with(mMap){
@@ -86,7 +91,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             uiSettings.isZoomControlsEnabled = false
             uiSettings.isCompassEnabled = false
             setPadding(0,80,0,0)
-            mapType = viewModel.mapType
+            applyMapType()
             if (isNight) setMapStyle(com.google.android.gms.maps.model.MapStyleOptions.loadRawResourceStyle(this@MapActivity, R.raw.map_style_dark))
 
 

@@ -12,6 +12,7 @@ import io.github.jqssun.gpssetter.utils.ext.getAddress
 import io.github.jqssun.gpssetter.utils.ext.showToast
 import kotlinx.coroutines.launch
 import io.github.jqssun.gpssetter.utils.Accent
+import io.github.jqssun.gpssetter.utils.PrefManager
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.Marker
@@ -27,9 +28,30 @@ import org.maplibre.android.location.modes.CameraMode
 import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.OnMapReadyCallback
+import org.maplibre.android.maps.Style
 import org.maplibre.android.maps.SupportMapFragment
 
 typealias CustomLatLng = LatLng
+
+// Keyless raster tiles for the non-Normal map types (#12); Normal stays on OpenFreeMap vector tiles.
+// ponytail: Esri's public tile endpoints work without a key, but their terms expect an ArcGIS account
+// for production use; swap these URLs for a keyed provider if that ever matters.
+private const val ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/"
+private const val ESRI_IMAGERY = ESRI + "World_Imagery/MapServer/tile/{z}/{y}/{x}"
+private const val ESRI_ROADS = ESRI + "Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+private const val ESRI_PLACES = ESRI + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+private const val ESRI_ATTRIBUTION = "Tiles © Esri, Maxar, Earthstar Geographics"
+private const val OPEN_TOPO = "https://tile.opentopomap.org/{z}/{x}/{y}.png"
+private const val OPEN_TOPO_ATTRIBUTION = "© OpenStreetMap contributors, SRTM | © OpenTopoMap (CC-BY-SA)"
+
+// A MapLibre style of stacked raster layers: the first URL is the base, the rest overlay it (Hybrid labels).
+private fun rasterStyle(attribution: String, maxZoom: Int, vararg urls: String): Style.Builder {
+    val sources = urls.withIndex().joinToString(",") { (i, url) ->
+        """"s$i":{"type":"raster","tiles":["$url"],"tileSize":256,"maxzoom":$maxZoom,"attribution":"$attribution"}"""
+    }
+    val layers = urls.indices.joinToString(",") { """{"id":"l$it","type":"raster","source":"s$it"}""" }
+    return Style.Builder().fromJson("""{"version":8,"sources":{$sources},"layers":[$layers]}""")
+}
 
 class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClickListener {
 
@@ -84,28 +106,46 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
             }
         }
     }
+    private var appliedMapType = 0
+
+    // pref 1 Normal, 2 Satellite, 3 Terrain, 4 Hybrid. Skips an unchanged type so every resume doesn't reload (and flash) the map.
+    // A theme change recreates the activity, so Normal's light/dark pick is always current.
+    override fun applyMapType() {
+        if (!::mMap.isInitialized) return
+        val type = PrefManager.mapType
+        if (type == appliedMapType) return
+        appliedMapType = type
+        val builder = when (type) {
+            2 -> rasterStyle(ESRI_ATTRIBUTION, 19, ESRI_IMAGERY)
+            3 -> rasterStyle(OPEN_TOPO_ATTRIBUTION, 17, OPEN_TOPO)
+            4 -> rasterStyle(ESRI_ATTRIBUTION, 19, ESRI_IMAGERY, ESRI_ROADS, ESRI_PLACES)
+            else -> Style.Builder().fromUri("https://tiles.openfreemap.org/styles/" + if (isNight) "dark" else "liberty")
+        }
+        mMap.setStyle(builder) { style ->
+            // the location puck carries over to a new style; only set it up (or ask for permission) once
+            if (mMap.locationComponent.isLocationComponentActivated) return@setStyle
+            if (ActivityCompat.checkSelfPermission(this@MapActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                val locationComponent = mMap.locationComponent
+                locationComponent.activateLocationComponent(
+                    LocationComponentActivationOptions.builder(this@MapActivity, style)
+                    .useDefaultLocationEngine(true)
+                    .build()
+                )
+                locationComponent.isLocationComponentEnabled = true
+                locationComponent.cameraMode = CameraMode.TRACKING
+                locationComponent.renderMode = RenderMode.COMPASS
+            } else {
+                ActivityCompat.requestPermissions(this@MapActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 99);
+            }
+        }
+    }
     override fun onMapReady(mapLibreMap: MapLibreMap) {
         mMap = mapLibreMap
         with(mMap){
 
 
             // maplibre custom ui
-            // ponytail: keyless OpenFreeMap for every map type; satellite/terrain need a keyed provider (e.g. own Mapbox token)
-            setStyle("https://tiles.openfreemap.org/styles/" + if (isNight) "dark" else "liberty") { style ->
-                if (ActivityCompat.checkSelfPermission(this@MapActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) { 
-                    val locationComponent = mMap.locationComponent
-                    locationComponent.activateLocationComponent(
-                        LocationComponentActivationOptions.builder(this@MapActivity, style)
-                        .useDefaultLocationEngine(true)
-                        .build()
-                    )
-                    locationComponent.isLocationComponentEnabled = true
-                    locationComponent.cameraMode = CameraMode.TRACKING
-                    locationComponent.renderMode = RenderMode.COMPASS
-                } else {
-                    ActivityCompat.requestPermissions(this@MapActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 99);
-                }
-            }
+            applyMapType()
             // TODO: fix bug with drawer
             uiSettings.setAllGesturesEnabled(true)
             uiSettings.setCompassEnabled(true)

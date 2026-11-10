@@ -159,6 +159,8 @@ abstract class BaseMapActivity: AppCompatActivity() {
     protected abstract fun initializeMap()
     protected abstract fun setupButtons()
     protected abstract fun moveMapToNewLocation(moveNewLocation: Boolean)
+    // Applies the Settings "Map" type (PrefManager.mapType); no-op until the map is ready. Called from onMapReady and onResume (#12).
+    protected abstract fun applyMapType()
 
     // Route overlay (flavor-specific map): polyline + A/B markers, and a moving traveler dot.
     protected abstract fun drawRoute(points: List<Pair<Double, Double>>)
@@ -480,6 +482,8 @@ abstract class BaseMapActivity: AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.updateXposedState()
+        applyMapType() // picks up a change made in Settings
+
     }
 
     protected fun aboutDialog(){
