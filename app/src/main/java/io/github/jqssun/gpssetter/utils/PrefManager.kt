@@ -2,6 +2,7 @@ package io.github.jqssun.gpssetter.utils
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.ParcelFileDescriptor
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.MutableLiveData
 import io.github.jqssun.gpssetter.BuildConfig
@@ -13,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.util.concurrent.Executors
 
 
 object PrefManager   {
@@ -45,6 +47,8 @@ object PrefManager   {
     // the hook can't read app-private files, so the settings it needs are mirrored into
     // LSPosed's remote preferences (libxposed service) whenever they change
     @Volatile private var remote: SharedPreferences? = null
+    @Volatile private var service: XposedService? = null
+    private val fileWriter = Executors.newSingleThreadExecutor() // keeps writes in order, off the main thread
     val moduleActive = MutableLiveData<Boolean>()
     // e.g. "LSPosed 2.0.1 · API 102", for the Targets tab; set before moduleActive flips to true
     @Volatile var framework: String? = null
@@ -63,6 +67,7 @@ object PrefManager   {
             Timber.e(e, "Remote preferences unavailable")
             return
         }
+        this.service = service
         pref.registerOnSharedPreferenceChangeListener(mirror)
         syncRemote()
         moduleActive.postValue(true)
@@ -70,6 +75,7 @@ object PrefManager   {
 
     fun onServiceDied() {
         remote = null
+        service = null
         moduleActive.postValue(false)
     }
 
@@ -86,6 +92,25 @@ object PrefManager   {
             .putFloat(SPEED, speed)
             .putFloat(BEARING, bearing)
             .apply()
+        writeRemoteFile(remote.all)
+    }
+
+    // The same values as a remote file, for the system_server hook: the framework may never push
+    // preference changes there (see Xshare). Truncate first, then one write ending in the END marker,
+    // so a read racing the write sees an incomplete file and keeps its previous values.
+    private fun writeRemoteFile(values: Map<String, *>) {
+        val service = service ?: return
+        val text = values.entries.joinToString("") { "${it.key}=${it.value}\n" } + "${Xshare.END}=1\n"
+        fileWriter.execute {
+            try {
+                ParcelFileDescriptor.AutoCloseOutputStream(service.openRemoteFile(Xshare.FILE)).use {
+                    it.channel.truncate(0)
+                    it.write(text.toByteArray())
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Couldn't write ${Xshare.FILE}")
+            }
+        }
     }
 
     val altitude: Double

@@ -4,6 +4,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.location.LocationRequest
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
 import io.github.jqssun.gpssetter.BuildConfig
@@ -38,9 +39,12 @@ object LocationHook {
     @Volatile private var lastGpsReportTime: Long = 0
     private var locationResultWrap: Method? = null
 
-    private fun init(xposed: XposedModule) {
+    // system = true also re-reads the settings from a remote file, because the framework may not
+    // push preference changes into system_server (see Xshare)
+    private fun init(xposed: XposedModule, system: Boolean = false) {
         module = xposed
-        settings = Xshare(xposed.getRemotePreferences(Xshare.GROUP))
+        val open = if (system) { -> ParcelFileDescriptor.AutoCloseInputStream(xposed.openRemoteFile(Xshare.FILE)) } else null
+        settings = Xshare(xposed.getRemotePreferences(Xshare.GROUP), open)
     }
 
     // re-reads settings (and re-rolls the random offset) at most once per interval, so start/stop and new locations apply without a reboot
@@ -55,6 +59,7 @@ object LocationHook {
     private fun updateLocation() {
         try {
             mLastUpdated = System.currentTimeMillis()
+            settings.refresh()
             val now = settings.isStarted
             if (now != started) module.log(Log.INFO, TAG, "Spoofing ${if (now) "on" else "off"}")
             started = now
@@ -260,7 +265,7 @@ object LocationHook {
     }
 
     fun initSystemHooks(xposed: XposedModule, classLoader: ClassLoader) {
-        init(xposed)
+        init(xposed, system = true)
         module.log(Log.INFO, TAG, "Hooking system server (SDK ${Build.VERSION.SDK_INT})")
         if (!settings.isHookedSystem) {
             module.log(Log.INFO, TAG, "System hook disabled in settings")
