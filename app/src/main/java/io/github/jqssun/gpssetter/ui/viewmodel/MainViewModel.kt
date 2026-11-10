@@ -102,9 +102,13 @@ class MainViewModel @Inject constructor(
         favoriteRepository.deleteFavorite(favorite)
     }
 
-    // Undo after a delete: same id, so it lands back in its slot (and its QS tile)
+    // Undo after a delete: back into its own slot if that's still free. If a spot saved since has
+    // taken it, into the next free slot instead: replacing would lose the newer spot, and the insert
+    // ignores conflicts, so without this the undo did nothing.
     fun restoreFavorite(favorite: Favorite) = onIO {
-        favoriteRepository.addNewFavorite(favorite)
+        if (favoriteRepository.addNewFavorite(favorite) == -1L) {
+            favoriteRepository.addNewFavorite(favorite.copy(id = freeSlot()))
+        }
     }
 
     // ---- saved routes (Saved tab) ----
@@ -122,8 +126,11 @@ class MainViewModel @Inject constructor(
 
     fun restoreRoute(route: SavedRoute) = onIO { savedRouteDao.insert(route) }
 
-    private fun getFavoriteSingle(i : Int) : Favorite {
-        return favoriteRepository.getSingleFavorite(i.toLong())
+    // lowest id no favorite uses
+    private fun freeSlot(): Long {
+        var id = 0L
+        while (favoriteRepository.getSingleFavorite(id) != null) id++
+        return id
     }
 
 
@@ -294,17 +301,7 @@ class MainViewModel @Inject constructor(
         lon: Double
     ) = onIO {
 
-            val slot: Int
-            var i = 0
-            while (true) {
-                if(getFavoriteSingle(i) == null) {
-                    slot = i
-                    break
-                } else {
-                    i++
-                }
-        }
-         insertNewFavorite(Favorite(id = slot.toLong(), address = address, lat = lat, lng = lon))
+         insertNewFavorite(Favorite(id = freeSlot(), address = address, lat = lat, lng = lon))
     }
 
 
