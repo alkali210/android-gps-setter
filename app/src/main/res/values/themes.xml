@@ -1,6 +1,6 @@
 <resources>
-    <!-- Committed dark for the glassmorphism look; light theme is a separate effort. -->
-    <style name="Theme.GPSSetter" parent="Theme.Material3.Dark.NoActionBar">
+    <!-- Follows the Dark theme setting; glass colours swap via values-night/colors.xml -->
+    <style name="Theme.GPSSetter" parent="Theme.Material3.DayNight.NoActionBar">
 
         <item name="colorPrimary">@color/primary</item>
 

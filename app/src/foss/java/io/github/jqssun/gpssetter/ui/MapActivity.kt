@@ -91,7 +91,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
 
             // maplibre custom ui
             // ponytail: keyless OpenFreeMap for every map type; satellite/terrain need a keyed provider (e.g. own Mapbox token)
-            setStyle("https://tiles.openfreemap.org/styles/dark") { style ->
+            setStyle("https://tiles.openfreemap.org/styles/" + if (isNight) "dark" else "liberty") { style ->
                 if (ActivityCompat.checkSelfPermission(this@MapActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) { 
                     val locationComponent = mMap.locationComponent
                     locationComponent.activateLocationComponent(

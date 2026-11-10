@@ -150,6 +150,10 @@ abstract class BaseMapActivity: AppCompatActivity() {
         )
     }
 
+    // Effective night mode (system or the in-app Dark theme setting); picks the map style.
+    protected val isNight get() =
+        (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+
     protected abstract fun getActivityInstance(): BaseMapActivity
     protected abstract fun hasMarker(): Boolean
     protected abstract fun initializeMap()
@@ -331,7 +335,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyAccent()
-        enableEdgeToEdge(navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT))
+        enableEdgeToEdge(navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT))
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         lifecycleScope.launchWhenCreated {
