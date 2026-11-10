@@ -2,17 +2,20 @@
 <resources>
 
     <color name="primary">#7D98B3</color>
-    <!--
-    <color name="primary_dark">#ff24457f</color>
-    <color name="primary_light">#BBDEFB</color>
-    -->
     <color name="ic_launcher_background">#00897B</color>
 
-    <!-- glassmorphism over the light map (dark values in values-night/colors.xml) -->
-    <color name="glass_fill">#D9F8F9FB</color>
-    <color name="glass_stroke">#1F000000</color>
-    <color name="glass_ink">#1A1D23</color>
-    <color name="glass_ink_dim">#5B6472</color>
-    <color name="glass_dialog_fill">#F5FAFBFC</color>
+    <!-- tactical light: near-opaque panels over the map, slate ink, hairline edges (dark values in values-night/colors.xml) -->
+    <color name="glass_fill">#F8FFFFFF</color>
+    <color name="glass_stroke">#1F0F172A</color>
+    <color name="glass_ink">#0F172A</color>
+    <color name="glass_ink_dim">#5B6577</color>
+    <color name="glass_dialog_fill">#FAFFFFFF</color>
+
+    <!-- full-screen tabs (Saved, Targets) and the bottom bar -->
+    <color name="screen_bg">#F1F4F8</color>
+    <color name="bar_bg">#FFFFFF</color>
+
+    <color name="status_ok">#16A34A</color>
+    <color name="status_bad">#DC2626</color>
 
 </resources>

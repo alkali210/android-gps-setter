@@ -21,11 +21,11 @@ import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.AppCompatButton
@@ -36,10 +36,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.google.android.gms.location.*
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.elevation.ElevationOverlayProvider
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.jqssun.gpssetter.BuildConfig
@@ -140,16 +138,6 @@ abstract class BaseMapActivity: AppCompatActivity() {
             .show()
     }
 
-    private val elevationOverlayProvider by lazy {
-        ElevationOverlayProvider(this)
-    }
-
-    private val headerBackground by lazy {
-        elevationOverlayProvider.compositeOverlayWithThemeSurfaceColorIfNeeded(
-            resources.getDimension(R.dimen.bottom_sheet_elevation)
-        )
-    }
-
     // Effective night mode (system or the in-app Dark theme setting); picks the map style.
     protected val isNight get() =
         (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
@@ -204,22 +192,89 @@ abstract class BaseMapActivity: AppCompatActivity() {
         }
     }
 
+    // ---- Bottom nav: Teleport/Routes switch the map's mode; Saved/Targets cover the map ----
+    private val backToTeleport = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() { binding.bottomNav.selectedItemId = R.id.tab_teleport }
+    }
+
+    private fun setupTabs() {
+        binding.bottomNav.setOnItemSelectedListener { item ->
+            val id = item.itemId
+            binding.screenSaved.root.isVisible = id == R.id.tab_saved
+            binding.screenTargets.root.isVisible = id == R.id.tab_targets
+            when (id) {
+                R.id.tab_teleport -> setRouteMode(false)
+                R.id.tab_routes -> setRouteMode(true)
+            }
+            backToTeleport.isEnabled = id != R.id.tab_teleport
+            true
+        }
+        onBackPressedDispatcher.addCallback(this, backToTeleport)
+        binding.settingsButton.setOnClickListener { startActivity(Intent(this, ActivitySettings::class.java)) }
+
+        // edge-to-edge: keep the search bar and the full-screen tabs below the status bar
+        val pad = resources.getDimensionPixelSize(R.dimen.padding_8)
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, insets ->
+            val top = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
+            binding.topBar.updatePadding(top = top + pad)
+            binding.screenSaved.root.updatePadding(top = top)
+            binding.screenTargets.root.updatePadding(top = top)
+            insets
+        }
+    }
+
+    private fun setRouteMode(on: Boolean) {
+        if (on == routeMode) return // e.g. Routes -> Saved -> Routes keeps a route in progress
+        routeMode = on
+        binding.routePanel.isVisible = on
+        if (on) {
+            binding.startButton.visibility = View.GONE
+            binding.stopButton.visibility = View.GONE
+            showSetup()
+        } else {
+            resetRoute()
+            binding.startButton.isVisible = !viewModel.isStarted
+            binding.stopButton.isVisible = viewModel.isStarted
+        }
+    }
+
+    private fun setupSaved() {
+        val saved = binding.screenSaved
+        saved.favoritesList.layoutManager = LinearLayoutManager(this)
+        saved.favoritesList.adapter = favListAdapter
+        favListAdapter.onItemClick = { fav ->
+            lat = fav.lat!!
+            lon = fav.lng!!
+            binding.bottomNav.selectedItemId = R.id.tab_teleport
+            moveMapToNewLocation(true)
+        }
+        favListAdapter.onItemDelete = { viewModel.deleteFavorite(it) }
+        saved.savedExport.setOnClickListener { exportFavoritesLauncher.launch("favorites.json") }
+        saved.savedImport.setOnClickListener { importFavoritesLauncher.launch(arrayOf("application/json")) }
+        viewModel.doGetUserDetails()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.allFavList.collect {
+                    favListAdapter.submitList(it)
+                    saved.savedEmpty.isVisible = it.isEmpty()
+                }
+            }
+        }
+    }
+
+    private fun showModuleStatus(active: Boolean) {
+        val t = binding.screenTargets
+        t.moduleStatus.setText(if (active) R.string.module_active else R.string.error_xposed_module_missing)
+        t.moduleDetail.text = if (active) PrefManager.framework.orEmpty() else getString(R.string.error_xposed_module_missing_desc)
+        t.moduleDot.backgroundTintList = android.content.res.ColorStateList.valueOf(
+            getColor(if (active) R.color.status_ok else R.color.status_bad)
+        )
+    }
+
     private fun setupRouteMode() {
         updateSpeedLabel()
-        binding.modeToggle.check(R.id.mode_static)
-        binding.modeToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (!isChecked) return@addOnButtonCheckedListener
-            routeMode = checkedId == R.id.mode_route
-            binding.routeControls.visibility = if (routeMode) View.VISIBLE else View.GONE
-            if (routeMode) {
-                binding.startButton.visibility = View.GONE
-                binding.stopButton.visibility = View.GONE
-                showSetup()
-            } else {
-                resetRoute()
-                binding.startButton.visibility = if (viewModel.isStarted) View.GONE else View.VISIBLE
-                binding.stopButton.visibility = if (viewModel.isStarted) View.VISIBLE else View.GONE
-            }
+        binding.routeGpx.setOnClickListener {
+            if (checkPermissions()) gpxLauncher.launch(arrayOf("*/*")) else requestPermissions()
         }
         binding.speedMinus.setOnClickListener { speedKmh = (speedKmh - 10).coerceAtLeast(5); updateSpeedLabel() }
         binding.speedPlus.setOnClickListener { speedKmh = (speedKmh + 10).coerceAtMost(300); updateSpeedLabel() }
@@ -343,13 +398,13 @@ abstract class BaseMapActivity: AppCompatActivity() {
         lifecycleScope.launchWhenCreated {
             setContentView(binding.root)
         }
-        setSupportActionBar(binding.toolbar)
         initializeMap()
         checkModuleEnabled()
         checkUpdates()
-        setupNavView()
+        setupSearch()
         setupButtons()
-        setupDrawer()
+        setupTabs()
+        setupSaved()
         setupRouteMode()
         // observe once; registering inside the Add dialog stacked an observer (and a toast) per save
         viewModel.response.observe(this) {
@@ -367,37 +422,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
         }
     }
 
-    private fun setupDrawer() {
-        supportActionBar?.setDisplayShowTitleEnabled(false)
-        val mDrawerToggle = object : ActionBarDrawerToggle(
-            this,
-            binding.container,
-            binding.toolbar,
-            R.string.drawer_open,
-            R.string.drawer_close
-        ) {
-            override fun onDrawerClosed(view: View) {
-                super.onDrawerClosed(view)
-                invalidateOptionsMenu()
-            }
-
-            override fun onDrawerOpened(drawerView: View) {
-                super.onDrawerOpened(drawerView)
-                invalidateOptionsMenu()
-            }
-        }
-        binding.container.setDrawerListener(mDrawerToggle)
-    }
-
-    private fun setupNavView() {
-
-        binding.mapContainer.map.setOnApplyWindowInsetsListener { _, insets ->
-            val topInset: Int = insets.systemWindowInsetTop
-            val bottomInset: Int = insets.systemWindowInsetBottom
-            binding.navView.setPadding(0,topInset,0,0)
-            insets.consumeSystemWindowInsets()
-        }
-
+    private fun setupSearch() {
         val progress = binding.search.searchProgress
         binding.search.searchBox.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
@@ -434,37 +459,11 @@ abstract class BaseMapActivity: AppCompatActivity() {
             return@setOnEditorActionListener false
         }
 
-        binding.navView.setNavigationItemSelectedListener {
-            when(it.itemId){
-                R.id.get_favorite -> {
-                    openFavoriteListDialog()
-                }
-                R.id.export_favorites -> {
-                    exportFavoritesLauncher.launch("favorites.json")
-                }
-                R.id.import_favorites -> {
-                    importFavoritesLauncher.launch(arrayOf("application/json"))
-                }
-                R.id.play_route -> {
-                    if (checkPermissions()) gpxLauncher.launch(arrayOf("*/*")) else requestPermissions()
-                }
-                R.id.stop_route -> {
-                    RoutePlaybackService.stop(this)
-                }
-                R.id.settings -> {
-                    startActivity(Intent(this,ActivitySettings::class.java))
-                }
-                R.id.about -> {
-                    aboutDialog()
-                }
-            }
-            binding.container.closeDrawer(GravityCompat.START)
-            true
-        }
     }
 
     private fun checkModuleEnabled(){
         viewModel.isXposed.observe(this) { isXposed ->
+            showModuleStatus(isXposed)
             xposedDialog?.dismiss()
             xposedDialog = null
             if (!isXposed) {
@@ -486,21 +485,6 @@ abstract class BaseMapActivity: AppCompatActivity() {
 
     }
 
-    protected fun aboutDialog(){
-        alertDialog = MaterialAlertDialogBuilder(this)
-        layoutInflater.inflate(R.layout.about,null).apply {
-            val  titlele = findViewById<TextView>(R.id.design_about_title)
-            val  version = findViewById<TextView>(R.id.design_about_version)
-            val  info = findViewById<TextView>(R.id.design_about_info)
-            titlele.text = getString(R.string.app_name)
-            version.text = BuildConfig.VERSION_NAME
-            info.text = getString(R.string.about_info)
-        }.run {
-            alertDialog.setView(this)
-            alertDialog.show()
-        }
-    }
-
     protected fun addFavoriteDialog() {
         alertDialog =  MaterialAlertDialogBuilder(this).apply {
             val view = layoutInflater.inflate(R.layout.dialog,null)
@@ -517,44 +501,6 @@ abstract class BaseMapActivity: AppCompatActivity() {
             setView(view)
             show()
         }
-    }
-
-    private fun openFavoriteListDialog() {
-        getAllUpdatedFavList()
-        alertDialog = MaterialAlertDialogBuilder(this)
-        alertDialog.setTitle(getString(R.string.favorites))
-        val view = layoutInflater.inflate(R.layout.fav,null)
-        val rcv = view.findViewById<RecyclerView>(R.id.favorites_list)
-        rcv.layoutManager = LinearLayoutManager(this)
-        rcv.adapter = favListAdapter
-        favListAdapter.onItemClick = {
-            it.let {
-                lat = it.lat!!
-                lon = it.lng!!
-            }
-            moveMapToNewLocation(true)
-            if (dialog.isShowing) dialog.dismiss()
-
-        }
-        favListAdapter.onItemDelete = {
-            viewModel.deleteFavorite(it)
-        }
-        alertDialog.setView(view)
-        dialog = alertDialog.create()
-        dialog.show()
-
-    }
-
-    private fun getAllUpdatedFavList(){
-        lifecycleScope.launch {
-            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED){
-                viewModel.doGetUserDetails()
-                viewModel.allFavList.collect {
-                    favListAdapter.submitList(it)
-                }
-            }
-        }
-
     }
 
     private fun checkUpdates(){
