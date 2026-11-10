@@ -51,7 +51,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
         mapFragment?.getMapAsync(this)
     }
     override fun moveMapToNewLocation(moveNewLocation: Boolean) {
-        if (moveNewLocation) {
+        if (moveNewLocation && ::mMap.isInitialized) {
             mLatLng = LatLng(lat, lon)
             mLatLng.let { latLng ->
                 mMap.animateCamera(CameraUpdateFactory.newCameraPosition(
@@ -169,6 +169,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
         }
         // tap: toggle 1 km <-> 100 m around the current centre (#8); long-press: jump to the device location
         binding.getlocation.setOnClickListener {
+            if (!::mMap.isInitialized) return@setOnClickListener // map still loading
             val v = mMap.projection.visibleRegion
             val width = metersBetween(v.nearLeft.latitude, v.nearLeft.longitude, v.nearRight.latitude, v.nearRight.longitude)
             mMap.animateCamera(CameraUpdateFactory.zoomTo(MapScale.toggle(mMap.cameraPosition.zoom.toDouble(), width).toFloat()))
