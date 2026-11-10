@@ -25,6 +25,14 @@ class RoutingTest {
         assertEquals(3.0, pts[1].lng, 1e-9)
     }
 
+    @Test fun osrmUrlListsEveryStopInOrder() {
+        val url = Routing.osrmUrl(listOf(RoutePoint(17.48, 78.40), RoutePoint(17.49, 78.41), RoutePoint(17.5, 78.42)))
+        assertEquals(
+            "https://router.project-osrm.org/route/v1/driving/78.4,17.48;78.41,17.49;78.42,17.5?overview=full&geometries=geojson",
+            url
+        )
+    }
+
     @Test fun emptyOnBadJson() {
         assertTrue(coordsFromGeoJson("nonsense", "features").isEmpty())
         assertTrue(coordsFromGeoJson("""{"features":[]}""", "features").isEmpty())
