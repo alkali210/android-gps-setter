@@ -10,6 +10,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import io.github.jqssun.gpssetter.room.AppDatabase
 import io.github.jqssun.gpssetter.room.FavoriteDao
+import io.github.jqssun.gpssetter.room.SavedRouteDao
 import io.github.jqssun.gpssetter.update.GitHubService
 import io.github.jqssun.gpssetter.utils.PrefManager
 import retrofit2.Retrofit
@@ -44,6 +45,7 @@ object AppModule{
     fun provideDatabase(application: Application)
             = Room.databaseBuilder(application, AppDatabase::class.java, "user_database")
         .allowMainThreadQueries()
+        .addMigrations(AppDatabase.MIGRATION_1_2)
         .fallbackToDestructiveMigration()
         .build()
 
@@ -52,6 +54,10 @@ object AppModule{
     @Provides
     fun providesUserDao(favoriteDatabase: AppDatabase) : FavoriteDao =
         favoriteDatabase.favoriteDao()
+
+    @Singleton
+    @Provides
+    fun provideSavedRouteDao(database: AppDatabase): SavedRouteDao = database.savedRouteDao()
 
     @Singleton
     @Provides

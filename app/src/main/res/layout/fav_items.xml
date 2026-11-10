@@ -1,34 +1,67 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="horizontal"
-    android:paddingStart="20dp"
-    android:paddingTop="5dp"
-    android:paddingBottom="5dp"
-    android:layout_weight="2"
+<!-- a saved spot: tap to show it on the map, Teleport to spoof there now -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content">
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    android:background="@drawable/search_box_background"
+    android:foreground="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingVertical="8dp"
+    android:paddingStart="12dp"
+    android:paddingEnd="4dp">
 
+    <ImageView
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:importantForAccessibility="no"
+        android:src="@drawable/ic_place"
+        app:tint="?attr/colorPrimary" />
 
-    <TextView
-        android:textAppearance="@style/TextAppearance.AppCompat.Widget.TextView.SpinnerItem"
-        android:id="@+id/address"
+    <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
+        android:layout_marginStart="12dp"
         android:layout_weight="1"
-        android:text="@string/address"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:clickable="true"/>
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/address"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/glass_ink"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            tools:text="charminar" />
+
+        <TextView
+            android:id="@+id/coords"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textColor="@color/glass_ink_dim"
+            android:textSize="12sp"
+            tools:text="17.361564, 78.474665" />
+    </LinearLayout>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/teleport"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/teleport_now" />
 
     <ImageView
         android:id="@+id/del"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:src="@drawable/ic_delete"
-        android:layout_marginEnd="@dimen/padding_16"
-        android:contentDescription="@string/delete_favorite_item"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:clickable="true"/>
-
+        android:contentDescription="@string/delete_favorite_item"
+        android:padding="8dp"
+        android:src="@drawable/ic_delete" />
 </LinearLayout>

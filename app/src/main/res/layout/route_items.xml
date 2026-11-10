@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- a saved route: its shape, name, length; Open loads it into the Routes tab -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    android:background="@drawable/search_box_background"
+    android:foreground="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingVertical="8dp"
+    android:paddingStart="8dp"
+    android:paddingEnd="4dp">
+
+    <io.github.jqssun.gpssetter.ui.RouteSketchView
+        android:id="@+id/route_sketch"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:background="@color/screen_bg"
+        android:importantForAccessibility="no" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/route_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/glass_ink"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            tools:text="Kukatpally → Balaji Nagar" />
+
+        <TextView
+            android:id="@+id/route_meta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textColor="@color/glass_ink_dim"
+            android:textSize="12sp"
+            tools:text="4.6 km" />
+    </LinearLayout>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/route_open"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/open_route" />
+
+    <ImageView
+        android:id="@+id/route_export"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/export_route"
+        android:padding="8dp"
+        android:src="@drawable/ic_upload" />
+
+    <ImageView
+        android:id="@+id/route_delete"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/delete_route"
+        android:padding="8dp"
+        android:src="@drawable/ic_delete" />
+</LinearLayout>

@@ -23,7 +23,14 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jqssun.gpssetter.BuildConfig
 import io.github.jqssun.gpssetter.R
 import io.github.jqssun.gpssetter.repository.FavoriteRepository
+import io.github.jqssun.gpssetter.adapter.RouteCard
 import io.github.jqssun.gpssetter.room.Favorite
+import io.github.jqssun.gpssetter.room.SavedRoute
+import io.github.jqssun.gpssetter.room.SavedRouteDao
+import io.github.jqssun.gpssetter.route.RouteMath
+import io.github.jqssun.gpssetter.route.RoutePoint
+import io.github.jqssun.gpssetter.route.parseGpx
+import io.github.jqssun.gpssetter.route.toGpx
 import io.github.jqssun.gpssetter.update.UpdateChecker
 import io.github.jqssun.gpssetter.utils.PrefManager
 import io.github.jqssun.gpssetter.utils.ext.onIO
@@ -42,6 +49,7 @@ import kotlin.math.roundToInt
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val favoriteRepository: FavoriteRepository,
+    private val savedRouteDao: SavedRouteDao,
     private val prefManger: PrefManager,
     private val checkUpdates: UpdateChecker,
     private val downloadManager: DownloadManager,
@@ -93,6 +101,26 @@ class MainViewModel @Inject constructor(
     fun deleteFavorite(favorite: Favorite) = onIO {
         favoriteRepository.deleteFavorite(favorite)
     }
+
+    // Undo after a delete: same id, so it lands back in its slot (and its QS tile)
+    fun restoreFavorite(favorite: Favorite) = onIO {
+        favoriteRepository.addNewFavorite(favorite)
+    }
+
+    // ---- saved routes (Saved tab) ----
+
+    // each route with its thumbnail shape; parsing the GPX happens here, off the main thread
+    val routeCards: Flow<List<RouteCard>> = savedRouteDao.getAll()
+        .map { routes -> routes.map { RouteCard(it, RouteMath.sketch(parseGpx(it.gpx))) } }
+        .flowOn(Dispatchers.Default)
+
+    fun saveRoute(name: String, points: List<RoutePoint>) = onIO {
+        savedRouteDao.insert(SavedRoute(name = name, gpx = toGpx(name, points), meters = RouteMath.pathLength(points)))
+    }
+
+    fun deleteRoute(route: SavedRoute) = onIO { savedRouteDao.delete(route) }
+
+    fun restoreRoute(route: SavedRoute) = onIO { savedRouteDao.insert(route) }
 
     private fun getFavoriteSingle(i : Int) : Favorite {
         return favoriteRepository.getSingleFavorite(i.toLong())

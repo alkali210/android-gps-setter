@@ -28,6 +28,17 @@ class GpxParserTest {
         assertEquals(4.0, pts[1].lng, 1e-9) // attribute order lon-before-lat still works
     }
 
+    @Test fun toGpxRoundTrips() {
+        val pts = listOf(RoutePoint(17.48372, 78.41145, 540.0), RoutePoint(17.4845, 78.4123, 545.5), RoutePoint(-33.9, 151.2))
+        val gpx = toGpx("Home <-> \"Work\" & back", pts)
+        assertEquals(pts, parseGpx(gpx))
+        assertEquals("Home <-> \"Work\" & back", gpxName(gpx)) // escaped on the way out, unescaped on the way in
+    }
+
+    @Test fun nameIsNullWithoutOne() {
+        assertEquals(null, gpxName("""<gpx><trk><trkseg><trkpt lat="1" lon="2"/></trkseg></trk></gpx>"""))
+    }
+
     @Test fun emptyOnGarbage() {
         assertTrue(parseGpx("not xml at all").isEmpty())
     }
