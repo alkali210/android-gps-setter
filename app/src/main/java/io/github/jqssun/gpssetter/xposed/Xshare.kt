@@ -55,8 +55,9 @@ class Xshare(private val prefs: SharedPreferences, private val open: (() -> Inpu
     val isHookedSystem : Boolean
     get() = prefs.getBoolean("system_hooked", true)
 
-    val isRandomPosition :Boolean
-    get() = s("random_position")?.toBooleanStrictOrNull() ?: prefs.getBoolean("random_position", false)
+    // metres; 0 = report the exact point
+    val jitterMeters: Float
+    get() = s("jitter_m")?.toFloatOrNull() ?: prefs.getFloat("jitter_m", 0f)
 
     val accuracy : String?
     get() = s("accuracy_level") ?: prefs.getString("accuracy_level","10")

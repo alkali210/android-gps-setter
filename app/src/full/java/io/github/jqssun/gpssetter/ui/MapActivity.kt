@@ -41,9 +41,6 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
         mMarker?.position = it!!
         mMarker?.isVisible = true
     }
-    private fun removeMarker() {
-        mMarker?.isVisible = false
-    }
     override fun initializeMap() {
         val mapFragment = SupportMapFragment.newInstance()
         supportFragmentManager.beginTransaction()
@@ -101,7 +98,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             mLatLng = LatLng(lat, lon)
             mLatLng.let {
                 mMarker = addMarker(
-                    MarkerOptions().position(it!!).draggable(false).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)).visible(false)
+                    MarkerOptions().position(it!!).draggable(false).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)).visible(true)
                 )
                 mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(it, zoom))
             }
@@ -117,18 +114,17 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             }
         }
     }
+    override fun selectPoint(la: Double, ln: Double) {
+        if (mMarker == null) return // map not ready yet
+        val ll = LatLng(la, ln)
+        mLatLng = ll
+        updateMarker(ll)
+        mMap.animateCamera(CameraUpdateFactory.newLatLng(ll))
+        lat = la
+        lon = ln
+    }
     override fun onMapClick(latLng: LatLng) {
-        if (onMapTapped(latLng.latitude, latLng.longitude)) return
-        mLatLng = latLng
-        mMarker?.let { marker ->
-            mLatLng.let {
-                // marker.isVisible = true
-                updateMarker(it!!)
-                mMap.animateCamera(CameraUpdateFactory.newLatLng(it))
-                lat = it.latitude
-                lon = it.longitude
-            }
-        }
+        if (!onMapTapped(latLng.latitude, latLng.longitude)) selectPoint(latLng.latitude, latLng.longitude)
     }
 
     override fun getActivityInstance(): BaseMapActivity {
@@ -181,34 +177,16 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
         }
         binding.getlocation.setOnLongClickListener { getLastLocation(); true }
 
-        if (viewModel.isStarted) {
-            binding.startButton.visibility = View.GONE
-            binding.stopButton.visibility = View.VISIBLE
-        }
-
+        // which of the two shows (and the "Move here" label) is BaseMapActivity.renderTeleport's job
         binding.startButton.setOnClickListener {
             viewModel.update(true, lat, lon)
-            mLatLng.let {
-                updateMarker(it!!)
-            }
-            binding.startButton.visibility = View.GONE
-            binding.stopButton.visibility = View.VISIBLE
             lifecycleScope.launch {
-                mLatLng?.getAddress(getActivityInstance())?.let { address ->
-                    address.collect{ value ->
-                        showStartNotification(value)
-                    }
-                }
+                LatLng(lat, lon).getAddress(getActivityInstance()).collect { showStartNotification(it) }
             }
             showToast(getString(R.string.location_set))
         }
         binding.stopButton.setOnClickListener {
-            mLatLng.let {
-                viewModel.update(false, it!!.latitude, it.longitude)
-            }
-            removeMarker()
-            binding.stopButton.visibility = View.GONE
-            binding.startButton.visibility = View.VISIBLE
+            viewModel.update(false, lat, lon)
             cancelNotification()
             showToast(getString(R.string.location_unset))
         }
