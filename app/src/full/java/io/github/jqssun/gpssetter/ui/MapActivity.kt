@@ -87,7 +87,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
             uiSettings.isCompassEnabled = false
             setPadding(0,80,0,0)
             mapType = viewModel.mapType
-            setMapStyle(com.google.android.gms.maps.model.MapStyleOptions.loadRawResourceStyle(this@MapActivity, R.raw.map_style_dark))
+            if (isNight) setMapStyle(com.google.android.gms.maps.model.MapStyleOptions.loadRawResourceStyle(this@MapActivity, R.raw.map_style_dark))
 
 
             val zoom = 12.0f
