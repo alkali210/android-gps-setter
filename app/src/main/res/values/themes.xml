@@ -14,7 +14,7 @@
 
     </style>
 
-    <!-- Glass dialogs: dark translucent card, light ink, accent buttons -->
+    <!-- Glass dialogs: translucent card + ink from glass_* (light/dark via values-night), accent buttons -->
     <style name="ThemeOverlay.GPSSetter.GlassDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <item name="colorSurface">@color/glass_dialog_fill</item>
         <item name="colorOnSurface">@color/glass_ink</item>
