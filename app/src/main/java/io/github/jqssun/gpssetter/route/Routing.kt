@@ -1,5 +1,7 @@
 package io.github.jqssun.gpssetter.route
 
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.github.jqssun.gpssetter.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -75,4 +77,39 @@ fun coordsFromGeoJson(json: String, arrayKey: String): List<RoutePoint> {
     } catch (e: Exception) {
         emptyList()
     }
+}
+
+// The line in a pasted or imported GeoJSON document: a LineString or MultiLineString, bare or inside a
+// Feature or FeatureCollection (every line in it, joined in order). A third coordinate is elevation.
+// Empty when there's no line in it (only points, say) or it isn't GeoJSON.
+@Suppress("DEPRECATION")
+fun lineFromGeoJson(json: String): List<RoutePoint> =
+    try { lineOf(JsonParser().parse(json).asJsonObject) } catch (e: Exception) { emptyList() }
+
+// properties.name of the first feature that has one, for naming an imported track
+@Suppress("DEPRECATION")
+fun nameFromGeoJson(json: String): String? = try {
+    val o = JsonParser().parse(json).asJsonObject
+    val features = when (o.get("type")?.asString) {
+        "FeatureCollection" -> o.getAsJsonArray("features").map { it.asJsonObject }
+        "Feature" -> listOf(o)
+        else -> emptyList()
+    }
+    features.firstNotNullOfOrNull { f ->
+        f.get("properties")?.takeIf { it.isJsonObject }?.asJsonObject?.get("name")
+            ?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.isNotBlank() }
+    }
+} catch (e: Exception) { null }
+
+private fun lineOf(o: JsonObject): List<RoutePoint> = when (o.get("type")?.asString) {
+    "FeatureCollection" -> o.getAsJsonArray("features").flatMap { lineOf(it.asJsonObject) }
+    "Feature" -> o.getAsJsonObject("geometry")?.let { lineOf(it) }.orEmpty()
+    "LineString" -> positions(o.getAsJsonArray("coordinates"))
+    "MultiLineString" -> o.getAsJsonArray("coordinates").flatMap { positions(it.asJsonArray) }
+    else -> emptyList()
+}
+
+private fun positions(a: JsonArray): List<RoutePoint> = a.map {
+    val c = it.asJsonArray
+    RoutePoint(c[1].asDouble, c[0].asDouble, if (c.size() > 2) c[2].asDouble else 0.0)
 }

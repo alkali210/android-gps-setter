@@ -33,6 +33,36 @@ class RoutingTest {
         )
     }
 
+    @Test fun readsALineFromAnyGeoJsonWrapper() {
+        val line = """{"type":"LineString","coordinates":[[78.40,17.48,500],[78.41,17.49]]}"""
+        val bare = lineFromGeoJson(line)
+        assertEquals(listOf(RoutePoint(17.48, 78.40, 500.0), RoutePoint(17.49, 78.41, 0.0)), bare)
+        assertEquals(bare, lineFromGeoJson("""{"type":"Feature","properties":{},"geometry":$line}"""))
+        // a collection joins its lines in order and skips points
+        val fc = """{"type":"FeatureCollection","features":[
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]}},
+            {"type":"Feature","geometry":$line},
+            {"type":"Feature","geometry":{"type":"MultiLineString","coordinates":[[[78.42,17.50],[78.43,17.51]]]}}
+        ]}"""
+        assertEquals(4, lineFromGeoJson(fc).size)
+        assertEquals(17.51, lineFromGeoJson(fc).last().lat, 1e-9)
+    }
+
+    @Test fun namesComeFromFeatureProperties() {
+        val line = """{"type":"LineString","coordinates":[[1,2],[3,4]]}"""
+        assertEquals("lake loop", nameFromGeoJson(
+            """{"type":"FeatureCollection","features":[{"type":"Feature","properties":null,"geometry":$line},
+               {"type":"Feature","properties":{"name":"lake loop"},"geometry":$line}]}"""))
+        assertEquals(null, nameFromGeoJson(line))
+        assertEquals(null, nameFromGeoJson("nonsense"))
+    }
+
+    @Test fun noLineInGeoJsonIsEmpty() {
+        assertTrue(lineFromGeoJson("""{"type":"Point","coordinates":[1,2]}""").isEmpty())
+        assertTrue(lineFromGeoJson("not json").isEmpty())
+        assertTrue(lineFromGeoJson("[1,2,3]").isEmpty())
+    }
+
     @Test fun emptyOnBadJson() {
         assertTrue(coordsFromGeoJson("nonsense", "features").isEmpty())
         assertTrue(coordsFromGeoJson("""{"features":[]}""", "features").isEmpty())

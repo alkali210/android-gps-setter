@@ -10,25 +10,32 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import io.github.jqssun.gpssetter.R
 import io.github.jqssun.gpssetter.room.Favorite
+import java.util.Locale
 
 class FavListAdapter(
     ) : ListAdapter<Favorite,FavListAdapter.ViewHolder>(FavListComparetor()) {
 
-    var onItemClick : ((Favorite) -> Unit)? = null
+    var onItemClick : ((Favorite) -> Unit)? = null   // show it on the Teleport map
+    var onTeleport : ((Favorite) -> Unit)? = null    // show it and start spoofing there
     var onItemDelete : ((Favorite) -> Unit)? = null
 
    inner class ViewHolder(view: View): RecyclerView.ViewHolder(view) {
 
         private val address: TextView = view.findViewById(R.id.address)
+        private val coords: TextView = view.findViewById(R.id.coords)
         private val delete: ImageView = itemView.findViewById(R.id.del)
 
         fun bind(favorite: Favorite){
             address.text = favorite.address
+            coords.text = String.format(Locale.US, "%.6f, %.6f", favorite.lat ?: 0.0, favorite.lng ?: 0.0)
             delete.setOnClickListener {
                 onItemDelete?.invoke(favorite)
             }
-            address.setOnClickListener {
+            itemView.setOnClickListener {
                 onItemClick?.invoke(favorite)
+            }
+            itemView.findViewById<View>(R.id.teleport).setOnClickListener {
+                onTeleport?.invoke(favorite)
             }
         }
     }

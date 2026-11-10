@@ -23,7 +23,14 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jqssun.gpssetter.BuildConfig
 import io.github.jqssun.gpssetter.R
 import io.github.jqssun.gpssetter.repository.FavoriteRepository
+import io.github.jqssun.gpssetter.adapter.RouteCard
 import io.github.jqssun.gpssetter.room.Favorite
+import io.github.jqssun.gpssetter.room.SavedRoute
+import io.github.jqssun.gpssetter.room.SavedRouteDao
+import io.github.jqssun.gpssetter.route.RouteMath
+import io.github.jqssun.gpssetter.route.RoutePoint
+import io.github.jqssun.gpssetter.route.parseGpx
+import io.github.jqssun.gpssetter.route.toGpx
 import io.github.jqssun.gpssetter.update.UpdateChecker
 import io.github.jqssun.gpssetter.utils.PrefManager
 import io.github.jqssun.gpssetter.utils.ext.onIO
@@ -42,6 +49,7 @@ import kotlin.math.roundToInt
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val favoriteRepository: FavoriteRepository,
+    private val savedRouteDao: SavedRouteDao,
     private val prefManger: PrefManager,
     private val checkUpdates: UpdateChecker,
     private val downloadManager: DownloadManager,
@@ -94,8 +102,35 @@ class MainViewModel @Inject constructor(
         favoriteRepository.deleteFavorite(favorite)
     }
 
-    private fun getFavoriteSingle(i : Int) : Favorite {
-        return favoriteRepository.getSingleFavorite(i.toLong())
+    // Undo after a delete: back into its own slot if that's still free. If a spot saved since has
+    // taken it, into the next free slot instead: replacing would lose the newer spot, and the insert
+    // ignores conflicts, so without this the undo did nothing.
+    fun restoreFavorite(favorite: Favorite) = onIO {
+        if (favoriteRepository.addNewFavorite(favorite) == -1L) {
+            favoriteRepository.addNewFavorite(favorite.copy(id = freeSlot()))
+        }
+    }
+
+    // ---- saved routes (Saved tab) ----
+
+    // each route with its thumbnail shape; parsing the GPX happens here, off the main thread
+    val routeCards: Flow<List<RouteCard>> = savedRouteDao.getAll()
+        .map { routes -> routes.map { RouteCard(it, RouteMath.sketch(parseGpx(it.gpx))) } }
+        .flowOn(Dispatchers.Default)
+
+    fun saveRoute(name: String, points: List<RoutePoint>) = onIO {
+        savedRouteDao.insert(SavedRoute(name = name, gpx = toGpx(name, points), meters = RouteMath.pathLength(points)))
+    }
+
+    fun deleteRoute(route: SavedRoute) = onIO { savedRouteDao.delete(route) }
+
+    fun restoreRoute(route: SavedRoute) = onIO { savedRouteDao.insert(route) }
+
+    // lowest id no favorite uses
+    private fun freeSlot(): Long {
+        var id = 0L
+        while (favoriteRepository.getSingleFavorite(id) != null) id++
+        return id
     }
 
 
@@ -266,17 +301,7 @@ class MainViewModel @Inject constructor(
         lon: Double
     ) = onIO {
 
-            val slot: Int
-            var i = 0
-            while (true) {
-                if(getFavoriteSingle(i) == null) {
-                    slot = i
-                    break
-                } else {
-                    i++
-                }
-        }
-         insertNewFavorite(Favorite(id = slot.toLong(), address = address, lat = lat, lng = lon))
+         insertNewFavorite(Favorite(id = freeSlot(), address = address, lat = lat, lng = lon))
     }
 
 

@@ -116,6 +116,18 @@ class RouteMathTest {
         assertEquals(RouteMath.cornerLimit(corners, 50.0, 1, 2.0), RouteMath.cornerLimit(corners, 150.0, -1, 2.0), 1e-9)
     }
 
+    @Test fun sketchFitsTheBoxAndKeepsTheShape() {
+        // a straight east-west line: full width, vertically centred
+        val line = (0..200).map { m(0.0, it * 10.0) }
+        val s = RouteMath.sketch(line, max = 64)
+        assertTrue(s.size / 2 <= 65)
+        assertTrue(s.all { it in 0f..1f })
+        assertEquals(0f, s[0], 1e-6f)                // starts at the left
+        assertEquals(1f, s[s.size - 2], 1e-6f)       // ends at the right (last point always kept)
+        assertTrue((1 until s.size step 2).all { kotlin.math.abs(s[it] - 0.5f) < 1e-6f })
+        assertEquals(0, RouteMath.sketch(listOf(m(0.0, 0.0))).size)
+    }
+
     @Test fun compassNamesTheDirection() {
         assertEquals("000° N", RouteMath.compass(0f))
         assertEquals("045° NE", RouteMath.compass(45f))

@@ -192,6 +192,30 @@ object RouteMath {
         return limit
     }
 
+    // Up to [max] + 1 points of the route scaled into a 0..1 box, x east and y south (screen order),
+    // aspect kept and centred: the shape for a list thumbnail. Pairs: x0, y0, x1, y1, ...
+    fun sketch(points: List<RoutePoint>, max: Int = 64): FloatArray {
+        if (points.size < 2) return FloatArray(0)
+        val step = ((points.size + max - 1) / max).coerceAtLeast(1)
+        val picked = points.filterIndexed { i, _ -> i % step == 0 }
+            .let { if (it.last() === points.last()) it else it + points.last() }
+        val k = cos(Math.toRadians(points[0].lat)) // a degree of longitude is shorter away from the equator
+        val xs = picked.map { it.lng * k }
+        val ys = picked.map { -it.lat }
+        val w = xs.max() - xs.min()
+        val h = ys.max() - ys.min()
+        val span = max(w, h).takeIf { it > 0 } ?: 1.0
+        val ox = xs.min() - (span - w) / 2
+        val oy = ys.min() - (span - h) / 2
+        return FloatArray(picked.size * 2) { i ->
+            (if (i % 2 == 0) (xs[i / 2] - ox) / span else (ys[i / 2] - oy) / span).toFloat()
+        }
+    }
+
+    // "850 m", "4.6 km"
+    fun formatDistance(meters: Double): String =
+        if (meters >= 1000) String.format("%.1f km", meters / 1000) else "${meters.roundToInt()} m"
+
     // "045° NE"; a negative bearing (unknown) gives null
     fun compass(bearing: Float): String? {
         if (bearing < 0f) return null

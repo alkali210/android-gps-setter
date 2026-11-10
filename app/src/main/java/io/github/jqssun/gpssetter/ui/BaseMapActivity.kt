@@ -45,6 +45,15 @@ import dagger.hilt.android.AndroidEntryPoint
 import io.github.jqssun.gpssetter.BuildConfig
 import io.github.jqssun.gpssetter.R
 import io.github.jqssun.gpssetter.adapter.FavListAdapter
+import io.github.jqssun.gpssetter.adapter.RouteListAdapter
+import io.github.jqssun.gpssetter.room.Favorite
+import io.github.jqssun.gpssetter.room.SavedRoute
+import io.github.jqssun.gpssetter.route.gpxName
+import io.github.jqssun.gpssetter.route.lineFromGeoJson
+import io.github.jqssun.gpssetter.route.nameFromGeoJson
+import android.provider.OpenableColumns
+import androidx.recyclerview.widget.ConcatAdapter
+import com.google.android.material.snackbar.Snackbar
 import io.github.jqssun.gpssetter.route.RouteMath
 import io.github.jqssun.gpssetter.route.RoutePlaybackService
 import io.github.jqssun.gpssetter.route.RoutePoint
@@ -104,15 +113,35 @@ abstract class BaseMapActivity: AppCompatActivity() {
                 }
             }
         }
-    private val importFavoritesLauncher =
+    // favorites JSON, a GPX track or GeoJSON: importText works out which
+    private val importLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             uri ?: return@registerForActivityResult
             lifecycleScope.launch {
                 val text = withContext(Dispatchers.IO) {
                     contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                 }
-                if (text != null) viewModel.importFavorites(text)
+                if (text != null) importText(text, displayName(uri))
                 else showToast(getString(R.string.favorites_import_failed))
+            }
+        }
+    // the route whose GPX the picker is about to save
+    // ponytail: lost if the process dies while the picker is open; the user just taps export again
+    private var pendingExport: SavedRoute? = null
+    private val exportRouteLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/gpx+xml")) { uri ->
+            val route = pendingExport ?: return@registerForActivityResult
+            pendingExport = null
+            uri ?: return@registerForActivityResult
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        contentResolver.openOutputStream(uri)?.use { it.write(route.gpx.toByteArray()) }
+                    }
+                    showToast(getString(R.string.route_exported))
+                } catch (e: Exception) {
+                    showToast(getString(R.string.export_failed))
+                }
             }
         }
     private val gpxLauncher =
@@ -289,28 +318,130 @@ abstract class BaseMapActivity: AppCompatActivity() {
         b.stopButton.isVisible = live
     }
 
+    private val routeListAdapter = RouteListAdapter()
+    private var savedFilter = R.id.filter_all
+    private var savedSpots = 0
+    private var savedRoutes = 0
+
     private fun setupSaved() {
         val saved = binding.screenSaved
-        saved.favoritesList.layoutManager = LinearLayoutManager(this)
-        saved.favoritesList.adapter = favListAdapter
-        favListAdapter.onItemClick = { fav ->
-            lat = fav.lat!!
-            lon = fav.lng!!
-            binding.bottomNav.selectedItemId = R.id.tab_teleport
-            moveMapToNewLocation(true)
+        saved.savedList.layoutManager = LinearLayoutManager(this)
+        val everything = ConcatAdapter(favListAdapter, routeListAdapter)
+        saved.savedList.adapter = everything
+        favListAdapter.onItemClick = { showSpot(it) }
+        favListAdapter.onTeleport = { if (showSpot(it)) binding.startButton.performClick() }
+        favListAdapter.onItemDelete = { fav ->
+            viewModel.deleteFavorite(fav)
+            undoable(getString(R.string.deleted_fmt, fav.address.orEmpty())) { viewModel.restoreFavorite(fav) }
         }
-        favListAdapter.onItemDelete = { viewModel.deleteFavorite(it) }
+        routeListAdapter.onOpen = { openSavedRoute(it) }
+        routeListAdapter.onExport = { route ->
+            pendingExport = route
+            exportRouteLauncher.launch(route.name.replace(Regex("[^\\w\\- ]+"), "_").take(60) + ".gpx")
+        }
+        routeListAdapter.onDelete = { route ->
+            viewModel.deleteRoute(route)
+            undoable(getString(R.string.deleted_fmt, route.name)) { viewModel.restoreRoute(route) }
+        }
+        saved.savedFilter.setOnCheckedStateChangeListener { _, ids ->
+            savedFilter = ids.firstOrNull() ?: R.id.filter_all
+            saved.savedList.adapter = when (savedFilter) {
+                R.id.filter_spots -> favListAdapter
+                R.id.filter_routes -> routeListAdapter
+                else -> everything
+            }
+            renderSavedEmpty()
+        }
         saved.savedExport.setOnClickListener { exportFavoritesLauncher.launch("favorites.json") }
-        saved.savedImport.setOnClickListener { importFavoritesLauncher.launch(arrayOf("application/json")) }
+        saved.savedImport.setOnClickListener { importLauncher.launch(arrayOf("*/*")) }
+        saved.savedPaste.setOnClickListener {
+            val text = getSystemService(ClipboardManager::class.java).primaryClip
+                ?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+            if (text.isNullOrBlank()) showToast(getString(R.string.clipboard_empty)) else importText(text, null)
+        }
         viewModel.doGetUserDetails()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.allFavList.collect {
-                    favListAdapter.submitList(it)
-                    saved.savedEmpty.isVisible = it.isEmpty()
+                launch {
+                    viewModel.allFavList.collect {
+                        favListAdapter.submitList(it)
+                        savedSpots = it.size
+                        renderSavedEmpty()
+                    }
+                }
+                launch {
+                    viewModel.routeCards.collect {
+                        routeListAdapter.submitList(it)
+                        savedRoutes = it.size
+                        renderSavedEmpty()
+                    }
                 }
             }
         }
+    }
+
+    private fun renderSavedEmpty() {
+        val (empty, message) = when (savedFilter) {
+            R.id.filter_spots -> (savedSpots == 0) to R.string.saved_empty
+            R.id.filter_routes -> (savedRoutes == 0) to R.string.saved_empty_routes
+            else -> (savedSpots + savedRoutes == 0) to R.string.saved_empty_all
+        }
+        binding.screenSaved.savedEmpty.isVisible = empty
+        binding.screenSaved.savedEmpty.setText(message)
+    }
+
+    // the spot on the Teleport map; false if it has no coordinates
+    private fun showSpot(fav: Favorite): Boolean {
+        val la = fav.lat ?: return false
+        val ln = fav.lng ?: return false
+        lat = la
+        lon = ln
+        binding.bottomNav.selectedItemId = R.id.tab_teleport
+        moveMapToNewLocation(true)
+        return true
+    }
+
+    private fun openSavedRoute(route: SavedRoute) {
+        lifecycleScope.launch {
+            val points = withContext(Dispatchers.Default) { parseGpx(route.gpx) }
+            if (points.size < 2) { showToast(getString(R.string.route_empty)); return@launch }
+            binding.bottomNav.selectedItemId = R.id.tab_routes
+            loadGpx(points)
+        }
+    }
+
+    // A file or the clipboard: favorites JSON (an array), a GPX track, or GeoJSON with a line in it.
+    // Tracks and lines are saved as routes, named after the track, else the file.
+    private fun importText(text: String, fileName: String?) {
+        val t = text.trim()
+        when {
+            t.startsWith("[") -> viewModel.importFavorites(t)
+            t.contains("<gpx") || t.contains("<trkpt") || t.contains("<rtept") -> saveImported(parseGpx(t), gpxName(t) ?: fileName)
+            t.startsWith("{") -> saveImported(lineFromGeoJson(t), nameFromGeoJson(t) ?: fileName)
+            else -> showToast(getString(R.string.import_unknown))
+        }
+    }
+
+    private fun saveImported(points: List<RoutePoint>, name: String?) {
+        if (points.size < 2) { showToast(getString(R.string.route_empty)); return }
+        val title = name?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: getString(R.string.imported_route)
+        viewModel.saveRoute(title, points)
+        showToast(getString(R.string.route_saved_fmt, title))
+        if (savedFilter == R.id.filter_spots) binding.screenSaved.savedFilter.check(R.id.filter_all) // so it shows up
+    }
+
+    private fun displayName(uri: android.net.Uri): String? = try {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        }
+    } catch (e: Exception) { null }
+
+    // deletes in Saved can be taken back for a few seconds
+    private fun undoable(message: String, undo: () -> Unit) {
+        Snackbar.make(binding.screenSaved.root, message, Snackbar.LENGTH_LONG)
+            .setAnchorView(binding.bottomNav)
+            .setAction(R.string.undo) { undo() }
+            .show()
     }
 
     private fun showModuleStatus(active: Boolean) {
@@ -355,6 +486,13 @@ abstract class BaseMapActivity: AppCompatActivity() {
         b.routeNext.setOnClickListener { RoutePlaybackService.skip(this) }
         b.routeCancel.setOnClickListener { resetRoute() }
         b.routeUndo.setOnClickListener { undoStop() }
+        b.routeSave.setOnClickListener {
+            val road = roadPoints
+            if (road == null) { showToast(getString(R.string.route_nothing_to_save)); return@setOnClickListener }
+            val name = if (stopNames.size >= 2) "${stopNames.first()} → ${stopNames.last()}" else getString(R.string.imported_route)
+            viewModel.saveRoute(name, road)
+            showToast(getString(R.string.route_saved_fmt, name))
+        }
         b.routeSwap.setOnClickListener {
             stops.reverse(); stopNames.reverse()
             renderStops()
@@ -452,7 +590,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
         if (roadPoints == null) return
         val mins = (totalMeters / (speedKmh / 3.6) / 60.0).roundToInt().coerceAtLeast(1)
         val time = if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"
-        val base = getString(R.string.route_summary, formatDistance(totalMeters), time)
+        val base = getString(R.string.route_summary, RouteMath.formatDistance(totalMeters), time)
         binding.routeSummaryTv.text =
             if (stops.size > 2) base + " · " + resources.getQuantityString(R.plurals.route_stops, stops.size, stops.size) else base
     }
@@ -508,7 +646,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
     private fun updateTravelStats() {
         if (roadPoints == null) return
         val travelled = PrefManager.routeAlong.toDouble() // exact, from the service; on a ping-pong it counts back down
-        binding.travelDist.text = formatDistance(travelled)
+        binding.travelDist.text = RouteMath.formatDistance(travelled)
         val mps = PrefManager.speed
         binding.travelSpeed.text = getString(R.string.route_speed_fmt, (mps * 3.6).roundToInt())
         binding.travelHeading.text = RouteMath.compass(PrefManager.bearing) ?: "—"
@@ -545,8 +683,6 @@ abstract class BaseMapActivity: AppCompatActivity() {
         name ?: String.format("%.5f, %.5f", lat, lng)
     }
 
-    private fun formatDistance(meters: Double): String =
-        if (meters >= 1000) String.format("%.1f km", meters / 1000) else "${meters.roundToInt()} m"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

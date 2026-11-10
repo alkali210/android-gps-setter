@@ -25,7 +25,7 @@ class FavoriteRepository @Inject constructor(private val favoriteDao: FavoriteDa
        }
 
 
-       fun getSingleFavorite(id: Long) : Favorite {
+       fun getSingleFavorite(id: Long) : Favorite? {
        return favoriteDao.getSingleFavorite(id)
 
     }
