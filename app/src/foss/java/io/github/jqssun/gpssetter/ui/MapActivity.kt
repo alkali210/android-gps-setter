@@ -76,10 +76,6 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
             mMarker?.position = it!!
         }
     }
-    private fun removeMarker() {
-        mMarker?.remove() // mMarker?.isVisible = false
-        mMarker = null
-    }
     override fun initializeMap() {
         MapLibre.getInstance(this)
         // val mapFragment = supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment?
@@ -179,13 +175,17 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
             }
         }
     }
+    override fun selectPoint(la: Double, ln: Double) {
+        if (!::mMap.isInitialized) return
+        val ll = LatLng(la, ln)
+        mLatLng = ll
+        updateMarker(ll)
+        mMap.animateCamera(CameraUpdateFactory.newLatLng(ll))
+        lat = la
+        lon = ln
+    }
     override fun onMapClick(latLng: LatLng): Boolean {
-        if (onMapTapped(latLng.latitude, latLng.longitude)) return true
-        mLatLng = latLng
-        updateMarker(latLng)
-        mMap.animateCamera(CameraUpdateFactory.newLatLng(latLng))
-        lat = latLng.latitude
-        lon = latLng.longitude
+        if (!onMapTapped(latLng.latitude, latLng.longitude)) selectPoint(latLng.latitude, latLng.longitude)
         return true
     }
 
@@ -244,34 +244,16 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
         }
         binding.getlocation.setOnLongClickListener { getLastLocation(); true }
 
-        if (viewModel.isStarted) {
-            binding.startButton.visibility = View.GONE
-            binding.stopButton.visibility = View.VISIBLE
-        }
-
+        // which of the two shows (and the "Move here" label) is BaseMapActivity.renderTeleport's job
         binding.startButton.setOnClickListener {
             viewModel.update(true, lat, lon)
-            mLatLng.let {
-                updateMarker(it!!)
-            }
-            binding.startButton.visibility = View.GONE
-            binding.stopButton.visibility = View.VISIBLE
             lifecycleScope.launch {
-                mLatLng?.getAddress(getActivityInstance())?.let { address ->
-                    address.collect{ value ->
-                        showStartNotification(value)
-                    }
-                }
+                LatLng(lat, lon).getAddress(getActivityInstance()).collect { showStartNotification(it) }
             }
             showToast(getString(R.string.location_set))
         }
         binding.stopButton.setOnClickListener {
-            mLatLng.let {
-                viewModel.update(false, it!!.latitude, it.longitude)
-            }
-            removeMarker()
-            binding.stopButton.visibility = View.GONE
-            binding.startButton.visibility = View.VISIBLE
+            viewModel.update(false, lat, lon)
             cancelNotification()
             showToast(getString(R.string.location_unset))
         }

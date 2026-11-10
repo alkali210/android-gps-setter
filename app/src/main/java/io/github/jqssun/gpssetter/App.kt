@@ -26,6 +26,7 @@ class App : Application() {
         gsApp = this
         commonInit()
         AppCompatDelegate.setDefaultNightMode(PrefManager.darkTheme)
+        PrefManager.watch()
         XposedServiceHelper.registerListener(object : XposedServiceHelper.OnServiceListener {
             override fun onServiceBind(service: XposedService) = PrefManager.onServiceBind(service)
             override fun onServiceDied(service: XposedService) = PrefManager.onServiceDied()

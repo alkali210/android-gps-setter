@@ -64,12 +64,12 @@ object LocationHook {
             if (now != started) module.log(Log.INFO, TAG, "Spoofing ${if (now) "on" else "off"}")
             started = now
             if (!started) return
-            val north = (rand.nextInt(51) - 25).toDouble()
-            val east = (rand.nextInt(51) - 25).toDouble()
-            newlat =
-                if (settings.isRandomPosition) settings.getLat + GeoOffset.latOffsetDegrees(north) else settings.getLat
-            newlng =
-                if (settings.isRandomPosition) settings.getLng + GeoOffset.lngOffsetDegrees(east, settings.getLat) else settings.getLng
+            // ponytail: a fresh offset on every settings read (~5 Hz system, ~12 Hz in apps), so fixes hop
+            // around inside the radius; a slow random walk would look more like real GPS drift.
+            val lat = settings.getLat
+            val (dLat, dLng) = GeoOffset.jitter(lat, settings.jitterMeters.toDouble(), rand.nextDouble(), rand.nextDouble())
+            newlat = lat + dLat
+            newlng = settings.getLng + dLng
             accuracy = settings.accuracy?.toFloatOrNull()?.takeIf { it > 0f } ?: 10.0f
             newAlt = settings.altitude
             newSpeed = settings.speed

@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.PendingIntent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -48,6 +50,7 @@ import io.github.jqssun.gpssetter.route.RoutePlaybackService
 import io.github.jqssun.gpssetter.route.RoutePoint
 import io.github.jqssun.gpssetter.route.Routing
 import io.github.jqssun.gpssetter.route.parseGpx
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import io.github.jqssun.gpssetter.databinding.ActivityMapBinding
 import io.github.jqssun.gpssetter.ui.viewmodel.MainViewModel
@@ -57,10 +60,12 @@ import io.github.jqssun.gpssetter.utils.PrefManager
 import io.github.jqssun.gpssetter.utils.StopSpoofReceiver
 import io.github.jqssun.gpssetter.utils.applyAccent
 import io.github.jqssun.gpssetter.utils.ext.*
+import io.github.jqssun.gpssetter.xposed.GeoOffset
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import java.io.IOException
+import java.util.Locale
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 import kotlin.properties.Delegates
@@ -68,8 +73,9 @@ import kotlin.properties.Delegates
 @AndroidEntryPoint
 abstract class BaseMapActivity: AppCompatActivity() {
 
-    protected var lat by Delegates.notNull<Double>()
-    protected var lon by Delegates.notNull<Double>()
+    // The selected point (marker). Starts at the last spoofed point; the Teleport panel follows it.
+    protected var lat by Delegates.observable(PrefManager.getLat) { _, _, _ -> renderTeleport() }
+    protected var lon by Delegates.observable(PrefManager.getLng) { _, _, _ -> renderTeleport() }
     protected val viewModel by viewModels<MainViewModel>()
     protected val binding by lazy { ActivityMapBinding.inflate(layoutInflater) }
     protected lateinit var alertDialog: MaterialAlertDialogBuilder
@@ -147,6 +153,8 @@ abstract class BaseMapActivity: AppCompatActivity() {
     protected abstract fun initializeMap()
     protected abstract fun setupButtons()
     protected abstract fun moveMapToNewLocation(moveNewLocation: Boolean)
+    // Make (la, ln) the selected point: marker there, camera pans (zoom kept), lat/lon set. No-op until the map is ready.
+    protected abstract fun selectPoint(la: Double, ln: Double)
     // Applies the Settings "Map" type (PrefManager.mapType); no-op until the map is ready. Called from onMapReady and onResume (#12).
     protected abstract fun applyMapType()
 
@@ -227,15 +235,71 @@ abstract class BaseMapActivity: AppCompatActivity() {
         if (on == routeMode) return // e.g. Routes -> Saved -> Routes keeps a route in progress
         routeMode = on
         binding.routePanel.isVisible = on
-        if (on) {
-            binding.startButton.visibility = View.GONE
-            binding.stopButton.visibility = View.GONE
-            showSetup()
-        } else {
-            resetRoute()
-            binding.startButton.isVisible = !viewModel.isStarted
-            binding.stopButton.isVisible = viewModel.isStarted
+        binding.teleportPanel.isVisible = !on
+        binding.dpad.isVisible = !on
+        if (on) showSetup() else resetRoute()
+    }
+
+    // ---- Teleport tab: telemetry, jitter, D-pad; start/stop follow the saved spoof state ----
+    private val nudgeSteps = intArrayOf(1, 5, 10)
+    private var nudgeStep = 1 // index into nudgeSteps: 5 m
+
+    private fun setupTeleport() {
+        val b = binding
+        b.nudgeStep.text = getString(R.string.meters_fmt, nudgeSteps[nudgeStep])
+        b.nudgeStep.setOnClickListener {
+            nudgeStep = (nudgeStep + 1) % nudgeSteps.size
+            b.nudgeStep.text = getString(R.string.meters_fmt, nudgeSteps[nudgeStep])
         }
+        b.nudgeN.setOnClickListener { nudge(1.0, 0.0) }
+        b.nudgeS.setOnClickListener { nudge(-1.0, 0.0) }
+        b.nudgeE.setOnClickListener { nudge(0.0, 1.0) }
+        b.nudgeW.setOnClickListener { nudge(0.0, -1.0) }
+
+        // the slider only accepts multiples of its 0.5 m step
+        b.jitterSlider.value = (PrefManager.jitterMeters * 2).roundToInt().coerceIn(0, 50) / 2f
+        showJitter(b.jitterSlider.value)
+        b.jitterSlider.addOnChangeListener { _, v, fromUser ->
+            showJitter(v)
+            if (fromUser) PrefManager.jitterMeters = v
+        }
+
+        b.copyCoords.setOnClickListener {
+            getSystemService(ClipboardManager::class.java)
+                .setPrimaryClip(ClipData.newPlainText(getString(R.string.copy_coords), coordText()))
+            if (Build.VERSION.SDK_INT < 33) showToast(getString(R.string.copied)) // 13+ shows its own confirmation
+        }
+
+        // start/stop can also change from the QS tile, the notification or route playback
+        PrefManager.changed.observe(this) { renderTeleport() }
+        renderTeleport()
+    }
+
+    private fun coordText() = String.format(Locale.US, "%.6f, %.6f", lat, lon)
+
+    private fun showJitter(v: Float) {
+        binding.jitterValue.text = if (v == 0f) getString(R.string.jitter_off) else String.format(Locale.US, "±%.1f m", v)
+    }
+
+    private fun nudge(north: Double, east: Double) {
+        val m = nudgeSteps[nudgeStep]
+        selectPoint(lat + GeoOffset.latOffsetDegrees(north * m), lon + GeoOffset.lngOffsetDegrees(east * m, lat))
+        if (PrefManager.isStarted) viewModel.update(true, lat, lon) // a live spoof follows the D-pad
+    }
+
+    // Idle: "Teleport here". Live at the selected point: Stop. Live elsewhere: "Move here" + Stop.
+    private fun renderTeleport() {
+        val live = PrefManager.isStarted
+        val here = live && abs(PrefManager.getLat - lat) < 1e-7 && abs(PrefManager.getLng - lon) < 1e-7
+        val b = binding
+        b.coords.text = coordText()
+        b.spoofStatus.text = getString(if (live) R.string.spoof_live else R.string.spoof_idle, PrefManager.accuracy ?: "10")
+        b.spoofDot.backgroundTintList = android.content.res.ColorStateList.valueOf(
+            getColor(if (live) R.color.status_ok else R.color.glass_ink_dim)
+        )
+        b.startButton.isVisible = !here
+        b.startButton.setText(if (live) R.string.move_here else R.string.start_mock)
+        b.stopButton.isVisible = live
     }
 
     private fun setupSaved() {
@@ -404,6 +468,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
         setupSearch()
         setupButtons()
         setupTabs()
+        setupTeleport()
         setupSaved()
         setupRouteMode()
         // observe once; registering inside the Add dialog stacked an observer (and a toast) per save
@@ -424,11 +489,22 @@ abstract class BaseMapActivity: AppCompatActivity() {
 
     private fun setupSearch() {
         val progress = binding.search.searchProgress
+        binding.search.searchPaste.setOnClickListener {
+            val text = getSystemService(ClipboardManager::class.java).primaryClip
+                ?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()?.trim()
+            if (text.isNullOrEmpty()) {
+                showToast(getString(R.string.clipboard_empty))
+            } else {
+                binding.search.searchBox.setText(text)
+                binding.search.searchBox.onEditorAction(EditorInfo.IME_ACTION_SEARCH)
+            }
+        }
         binding.search.searchBox.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                if (isNetworkConnected()) {
+                // "lat, lng" needs no geocoder, so it works offline
+                if (isNetworkConnected() || COORDS.matcher(v.text.trim()).matches()) {
                     lifecycleScope.launch(Dispatchers.Main) {
-                        val getInput = v.text.toString()
+                        val getInput = v.text.toString().trim()
                         if (getInput.isNotEmpty()){
                             getSearchAddress(getInput).let {
                                 it.collect { result ->
@@ -571,11 +647,13 @@ abstract class BaseMapActivity: AppCompatActivity() {
     private suspend fun getSearchAddress(address: String) = callbackFlow {
         withContext(Dispatchers.IO){
             trySend(SearchProgress.Progress)
-            val matcher: Matcher =
-                Pattern.compile("[-+]?\\d{1,3}([.]\\d+)?, *[-+]?\\d{1,3}([.]\\d+)?").matcher(address)
+            val matcher: Matcher = COORDS.matcher(address)
 
             if (matcher.matches()){
-                trySend(SearchProgress.Complete(matcher.group().split(",")[0].toDouble(),matcher.group().split(",")[1].toDouble()))
+                val (la, ln) = matcher.group().split(",").map { it.trim().toDouble() }
+                // a pasted value can be anything; MapLibre's LatLng throws outside these ranges
+                if (abs(la) <= 90 && abs(ln) <= 180) trySend(SearchProgress.Complete(la, ln))
+                else trySend(SearchProgress.Fail(getString(R.string.invalid_coords)))
             }else {
                 try {
                     val found = Geocoder(getActivityInstance()).getFromLocationName(address, 1)?.firstOrNull()
@@ -701,6 +779,9 @@ abstract class BaseMapActivity: AppCompatActivity() {
         }
     }
 }
+
+// "lat, lng" as typed or pasted (e.g. "17.3616, 78.4747")
+private val COORDS: Pattern = Pattern.compile("[-+]?\\d{1,3}([.]\\d+)?, *[-+]?\\d{1,3}([.]\\d+)?")
 
 sealed class SearchProgress {
     object Progress : SearchProgress()

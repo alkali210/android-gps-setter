@@ -20,14 +20,6 @@
             android:icon="@drawable/ic_accuracy"
             android:summary="10 m" />
 
-        <SwitchPreferenceCompat
-            android:title="@string/random_position"
-            android:summary="@string/random_position_summary"
-            android:icon="@drawable/ic_random_position"
-            android:key="random_position"
-            android:widgetLayout="@layout/preference_switch_widget"
-        />
-
     </PreferenceCategory>
 
 </PreferenceScreen>

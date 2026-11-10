@@ -27,7 +27,8 @@ object PrefManager   {
     private const val DEF_LAT = 40.7128
     private const val DEF_LNG = -74.0060
     private const val HOOKED_SYSTEM = "system_hooked"
-    private const val RANDOM_POSITION = "random_position"
+    private const val RANDOM_POSITION = "random_position" // legacy on/off (= 25 m); read only to migrate
+    private const val JITTER = "jitter_m"                 // Float metres, 0 = exact point
     private const val ACCURACY_SETTING = "accuracy_level"
     private const val MAP_TYPE = "map_type"
     private const val DARK_THEME = "dark_theme"
@@ -54,6 +55,12 @@ object PrefManager   {
     @Volatile var framework: String? = null
         private set
     private val mirror = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> syncRemote() }
+
+    // fires on any settings change (start/stop from the QS tile or notification, route playback, ...)
+    // so screens can re-render; the listener is a field because prefs only hold listeners weakly
+    val changed = MutableLiveData<Unit>()
+    private val notifier = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> changed.postValue(Unit) }
+    fun watch() = pref.registerOnSharedPreferenceChangeListener(notifier)
 
     fun onServiceBind(service: XposedService) {
         framework = try {
@@ -86,7 +93,7 @@ object PrefManager   {
             .putLong(LATITUDE_D, getLat.toRawBits())
             .putLong(LONGITUDE_D, getLng.toRawBits())
             .putBoolean(HOOKED_SYSTEM, isSystemHooked)
-            .putBoolean(RANDOM_POSITION, isRandomPosition)
+            .putFloat(JITTER, jitterMeters)
             .putString(ACCURACY_SETTING, accuracy)
             .putLong(ALTITUDE, altitude.toRawBits())
             .putFloat(SPEED, speed)
@@ -153,9 +160,13 @@ object PrefManager   {
         get() = pref.getBoolean(HOOKED_SYSTEM, true) // must match Xshare.isHookedSystem default
         set(value) { pref.edit().putBoolean(HOOKED_SYSTEM,value).apply() }
 
-    var isRandomPosition :Boolean
-        get() = pref.getBoolean(RANDOM_POSITION, false)
-        set(value) { pref.edit().putBoolean(RANDOM_POSITION, value).apply() }
+    var jitterMeters: Float
+        get() = when {
+            pref.contains(JITTER) -> pref.getFloat(JITTER, 0f)
+            pref.getBoolean(RANDOM_POSITION, false) -> 25f // the old switch used a fixed 25 m
+            else -> 0f
+        }
+        set(value) = pref.edit().putFloat(JITTER, value).apply()
 
     var accuracy : String?
         get() = pref.getString(ACCURACY_SETTING,"10")
@@ -181,19 +192,18 @@ object PrefManager   {
         get() = pref.getInt(ACCENT, 0) // default Blue
         set(value) = pref.edit().putInt(ACCENT, value).apply()
 
+    // apply() updates memory at once and writes to disk (and the remote mirror) in the background,
+    // so callers read the new state straight after; the Teleport panel relies on that
     fun update(start:Boolean, la: Double, ln: Double) {
-        runInBackground {
-            val prefEditor = pref.edit()
-            prefEditor.putLong(LATITUDE_D, la.toRawBits())
-            prefEditor.putLong(LONGITUDE_D, ln.toRawBits())
-            prefEditor.putBoolean(START, start)
+        pref.edit()
+            .putLong(LATITUDE_D, la.toRawBits())
+            .putLong(LONGITUDE_D, ln.toRawBits())
+            .putBoolean(START, start)
             // static spoof: clear any motion left over from route playback
-            prefEditor.putLong(ALTITUDE, 0.0.toRawBits())
-            prefEditor.putFloat(SPEED, 0f)
-            prefEditor.putFloat(BEARING, -1f)
-            prefEditor.apply()
-        }
-
+            .putLong(ALTITUDE, 0.0.toRawBits())
+            .putFloat(SPEED, 0f)
+            .putFloat(BEARING, -1f)
+            .apply()
     }
 
     @OptIn(DelicateCoroutinesApi::class)

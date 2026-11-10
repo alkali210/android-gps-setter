@@ -13,6 +13,23 @@
     <string name="saved_empty">No saved spots yet. Pick a spot on the Teleport map and tap the star to save it.</string>
     <string name="module_active">Module active</string>
     <string name="hook_settings">Hook settings</string>
+    <string name="start_mock">Teleport here</string>
+    <string name="move_here">Move here</string>
+    <string name="spoof_live">Live · accuracy %s m</string>
+    <string name="spoof_idle">Idle · accuracy %s m</string>
+    <string name="jitter">Jitter</string>
+    <string name="jitter_off">off</string>
+    <string name="meters_fmt">%d m</string>
+    <string name="copy_coords">Copy coordinates</string>
+    <string name="copied">Coordinates copied</string>
+    <string name="paste">Paste from clipboard</string>
+    <string name="clipboard_empty">Clipboard is empty</string>
+    <string name="invalid_coords">Coordinates out of range</string>
+    <string name="nudge_north">Nudge north</string>
+    <string name="nudge_south">Nudge south</string>
+    <string name="nudge_east">Nudge east</string>
+    <string name="nudge_west">Nudge west</string>
+    <string name="nudge_step_desc">Nudge step; tap to change</string>
     <string name="address">United States</string>
     <string name="favorites_exported">Favorites exported</string>
     <string name="favorites_imported">Imported %d favorites</string>
@@ -94,8 +111,6 @@
     <string name="enable_joystick_summary">Control your location with a joystick (experimental)</string>
     <string name="advanced_hook">Hook system location</string>
     <string name="advanced_summary">Hook system for better location setting (reboot required)</string>
-    <string name="random_position">Random location</string>
-    <string name="random_position_summary">Use a random location around the set location</string>
     <string name="app_update_failed">Update failed</string>
     <string name="dark_theme">Dark theme</string>
 
