@@ -53,7 +53,7 @@
     <string name="des">Show notification when location is set</string>
     <string name="location_unset">Location unset</string>
     <string name="no_internet">No Internet</string>
-    <string name="getlocation_desc">Get current location</string>
+    <string name="getlocation_desc">Switch map scale between 1 km and 100 m. Long press for current location</string>
     <string name="addfavorite_desc">Add favorite</string>
 
     <!-- Errors -->

@@ -193,9 +193,15 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
         binding.addfavorite.setOnClickListener {
             addFavoriteDialog()
         }
+        // tap: toggle 1 km <-> 100 m around the current centre (#8); long-press: jump to the device location
         binding.getlocation.setOnClickListener {
-            getLastLocation()
+            val v = mMap.projection.visibleRegion
+            val l = v.nearLeft ?: return@setOnClickListener
+            val r = v.nearRight ?: return@setOnClickListener
+            val width = metersBetween(l.latitude, l.longitude, r.latitude, r.longitude)
+            mMap.animateCamera(CameraUpdateFactory.zoomTo(MapScale.toggle(mMap.cameraPosition.zoom, width)))
         }
+        binding.getlocation.setOnLongClickListener { getLastLocation(); true }
 
         if (viewModel.isStarted) {
             binding.startButton.visibility = View.GONE

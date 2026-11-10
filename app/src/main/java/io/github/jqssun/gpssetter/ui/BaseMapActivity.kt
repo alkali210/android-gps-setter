@@ -658,6 +658,10 @@ abstract class BaseMapActivity: AppCompatActivity() {
         notificationsChannel.cancelAllNotifications(this)
     }
 
+    // metres between two corners of the visible map (the map's on-screen width), for MapScale
+    protected fun metersBetween(aLat: Double, aLng: Double, bLat: Double, bLng: Double): Double =
+        FloatArray(1).also { Location.distanceBetween(aLat, aLng, bLat, bLng, it) }[0].toDouble()
+
     // Get current location
     @SuppressLint("MissingPermission")
     protected fun getLastLocation() {

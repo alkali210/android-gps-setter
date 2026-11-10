@@ -167,9 +167,13 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
         binding.addfavorite.setOnClickListener {
             addFavoriteDialog()
         }
+        // tap: toggle 1 km <-> 100 m around the current centre (#8); long-press: jump to the device location
         binding.getlocation.setOnClickListener {
-            getLastLocation()
+            val v = mMap.projection.visibleRegion
+            val width = metersBetween(v.nearLeft.latitude, v.nearLeft.longitude, v.nearRight.latitude, v.nearRight.longitude)
+            mMap.animateCamera(CameraUpdateFactory.zoomTo(MapScale.toggle(mMap.cameraPosition.zoom.toDouble(), width).toFloat()))
         }
+        binding.getlocation.setOnLongClickListener { getLastLocation(); true }
 
         if (viewModel.isStarted) {
             binding.startButton.visibility = View.GONE
