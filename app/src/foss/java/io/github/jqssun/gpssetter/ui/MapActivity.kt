@@ -68,7 +68,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
         mapFragment?.getMapAsync(this)
     }
     override fun moveMapToNewLocation(moveNewLocation: Boolean) {
-        if (moveNewLocation) {
+        if (moveNewLocation && ::mMap.isInitialized) {
             mLatLng = LatLng(lat, lon)
             mLatLng.let { latLng ->
                 // mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng!!, 12.0f.toDouble()))
@@ -193,9 +193,16 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
         binding.addfavorite.setOnClickListener {
             addFavoriteDialog()
         }
+        // tap: toggle 1 km <-> 100 m around the current centre (#8); long-press: jump to the device location
         binding.getlocation.setOnClickListener {
-            getLastLocation()
+            if (!::mMap.isInitialized) return@setOnClickListener // map still loading
+            val v = mMap.projection.visibleRegion
+            val l = v.nearLeft ?: return@setOnClickListener
+            val r = v.nearRight ?: return@setOnClickListener
+            val width = metersBetween(l.latitude, l.longitude, r.latitude, r.longitude)
+            mMap.animateCamera(CameraUpdateFactory.zoomTo(MapScale.toggle(mMap.cameraPosition.zoom, width)))
         }
+        binding.getlocation.setOnLongClickListener { getLastLocation(); true }
 
         if (viewModel.isStarted) {
             binding.startButton.visibility = View.GONE
