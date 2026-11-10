@@ -2,6 +2,8 @@ package io.github.jqssun.gpssetter.utils
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.MutableLiveData
@@ -39,6 +41,8 @@ object PrefManager   {
     private const val ALTITUDE = "altitude_d" // Double bits
     private const val SPEED = "speed"         // m/s
     private const val BEARING = "bearing"     // degrees, -1 = unset (use the real fix's bearing)
+    private const val ROUTE_STATE = "route_state" // app-only, not mirrored: RoutePlaybackService.IDLE / RUNNING / PAUSED
+    private const val ROUTE_ALONG = "route_along" // app-only: metres along the playing route
 
 
     private val pref: SharedPreferences by lazy {
@@ -54,7 +58,14 @@ object PrefManager   {
     // e.g. "LSPosed 2.0.1 · API 102", for the Targets tab; set before moduleActive flips to true
     @Volatile var framework: String? = null
         private set
-    private val mirror = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> syncRemote() }
+    // the listener runs once per changed key, and a route tick changes six; post the sync so one
+    // edit() costs one sync (and one remote-file write), not six. Listeners run on the main thread.
+    private val main = Handler(Looper.getMainLooper())
+    private val syncTask = Runnable { syncRemote() }
+    private val mirror = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        main.removeCallbacks(syncTask)
+        main.post(syncTask)
+    }
 
     // fires on any settings change (start/stop from the QS tile or notification, route playback, ...)
     // so screens can re-render; the listener is a field because prefs only hold listeners weakly
@@ -125,8 +136,15 @@ object PrefManager   {
     val speed: Float get() = pref.getFloat(SPEED, 0f)
     val bearing: Float get() = pref.getFloat(BEARING, -1f)
 
+    // written by RoutePlaybackService so the Routes tab notices a route that ended, or was paused or
+    // stopped from the notification
+    var routeState: Int
+        get() = pref.getInt(ROUTE_STATE, 0)
+        set(value) = pref.edit().putInt(ROUTE_STATE, value).apply()
+
     // route playback: move to a point with motion. start=true; mirror listener syncs to the hook.
-    fun updateMotion(la: Double, ln: Double, altitude: Double, speed: Float, bearing: Float) {
+    // [along] = metres along the route, for the Routes tab's progress (app-only, not mirrored)
+    fun updateMotion(la: Double, ln: Double, altitude: Double, speed: Float, bearing: Float, along: Float) {
         runInBackground {
             pref.edit()
                 .putLong(LATITUDE_D, la.toRawBits())
@@ -135,9 +153,12 @@ object PrefManager   {
                 .putLong(ALTITUDE, altitude.toRawBits())
                 .putFloat(SPEED, speed)
                 .putFloat(BEARING, bearing)
+                .putFloat(ROUTE_ALONG, along)
                 .apply()
         }
     }
+
+    val routeAlong: Float get() = pref.getFloat(ROUTE_ALONG, 0f)
 
 
     val isStarted : Boolean

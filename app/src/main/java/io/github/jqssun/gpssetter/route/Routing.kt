@@ -7,35 +7,35 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 
-// A→B road route. Prefers OpenRouteService (BuildConfig.ORS_KEY), falls back to keyless OSRM,
-// and finally to a straight line so the feature always works. Uses HttpURLConnection so it does
+// Road route through [stops] in order (A, any via stops, then the destination). Prefers
+// OpenRouteService (BuildConfig.ORS_KEY), falls back to keyless OSRM, and finally to straight lines
+// between the stops so the feature always works. Uses HttpURLConnection so it does
 // not depend on which OkHttp version a flavor happens to pull in.
 object Routing {
 
-    suspend fun road(a: RoutePoint, b: RoutePoint): List<RoutePoint> = withContext(Dispatchers.IO) {
+    suspend fun road(stops: List<RoutePoint>): List<RoutePoint> = withContext(Dispatchers.IO) {
         if (BuildConfig.ORS_KEY.isNotBlank()) {
-            runCatching { ors(a, b) }.getOrNull()?.takeIf { it.size >= 2 }?.let { return@withContext it }
+            runCatching { ors(stops) }.getOrNull()?.takeIf { it.size >= 2 }?.let { return@withContext it }
         }
-        runCatching { osrm(a, b) }.getOrNull()?.takeIf { it.size >= 2 }?.let { return@withContext it }
-        listOf(a, b)
+        runCatching { osrm(stops) }.getOrNull()?.takeIf { it.size >= 2 }?.let { return@withContext it }
+        stops
     }
 
-    private fun ors(a: RoutePoint, b: RoutePoint): List<RoutePoint> {
+    private fun ors(stops: List<RoutePoint>): List<RoutePoint> {
         val json = post(
             "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
-            """{"coordinates":[[${a.lng},${a.lat}],[${b.lng},${b.lat}]]}""",
+            """{"coordinates":[${stops.joinToString(",") { "[${it.lng},${it.lat}]" }}]}""",
             mapOf("Authorization" to BuildConfig.ORS_KEY, "Content-Type" to "application/json")
         )
         return coordsFromGeoJson(json, "features")
     }
 
-    private fun osrm(a: RoutePoint, b: RoutePoint): List<RoutePoint> {
-        val json = get(
-            "https://router.project-osrm.org/route/v1/driving/" +
-                "${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson"
-        )
-        return coordsFromGeoJson(json, "routes")
-    }
+    private fun osrm(stops: List<RoutePoint>): List<RoutePoint> = coordsFromGeoJson(get(osrmUrl(stops)), "routes")
+
+    // one route over every stop; OSRM takes lng,lat pairs joined by ';'
+    internal fun osrmUrl(stops: List<RoutePoint>): String =
+        "https://router.project-osrm.org/route/v1/driving/" +
+            stops.joinToString(";") { "${it.lng},${it.lat}" } + "?overview=full&geometries=geojson"
 
     private fun get(url: String): String = open(url, "GET").run {
         try { inputStream.bufferedReader().use { it.readText() } } finally { disconnect() }

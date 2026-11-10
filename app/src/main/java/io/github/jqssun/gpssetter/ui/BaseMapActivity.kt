@@ -123,26 +123,9 @@ abstract class BaseMapActivity: AppCompatActivity() {
                     contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                 }
                 val route = text?.let { parseGpx(it) }.orEmpty()
-                if (route.size < 2) showToast(getString(R.string.route_empty)) else askSpeedAndPlay(route)
+                if (route.size < 2) showToast(getString(R.string.route_empty)) else loadGpx(route)
             }
         }
-
-    private fun askSpeedAndPlay(route: List<io.github.jqssun.gpssetter.route.RoutePoint>) {
-        val input = EditText(this).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            setText("50")
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.route_speed_title)
-            .setView(input)
-            .setPositiveButton(R.string.play_route) { _, _ ->
-                val kmh = input.text.toString().toFloatOrNull()?.takeIf { it > 0f } ?: 50f
-                drawRoute(route.map { it.lat to it.lng })
-                RoutePlaybackService.start(this, route, kmh / 3.6f, loop = false)
-                showToast(getString(R.string.route_started))
-            }
-            .show()
-    }
 
     // Effective night mode (system or the in-app Dark theme setting); picks the map style.
     protected val isNight get() =
@@ -181,21 +164,25 @@ abstract class BaseMapActivity: AppCompatActivity() {
         return bmp
     }
 
-    // ---- Route mode (Static / Route toggle, A->B directions, playback) ----
+    // ---- Routes tab: tapped stops (A, any via stops, destination), the road through them, playback ----
     private var routeMode = false
-    private var aPoint: Pair<Double, Double>? = null
-    private var bPoint: Pair<Double, Double>? = null
-    private var aName = ""
-    private var bName = ""
+    private val stops = mutableListOf<RoutePoint>()
+    private val stopNames = mutableListOf<String>()
+    private var stopDistances = DoubleArray(0) // via stops + destination, metres along the road, for "Next stop"
     private var roadPoints: List<RoutePoint>? = null
+    private var routeJob: Job? = null
     private var totalMeters = 0.0
     private var speedKmh = 50
+    private var playMode = RouteMath.ONCE
+    private val speedPresets = mapOf(R.id.speed_walk to 4, R.id.speed_run to 10, R.id.speed_bike to 18, R.id.speed_car to 50)
     private val travelerHandler = Handler(Looper.getMainLooper())
     private val travelerTick = object : Runnable {
         override fun run() {
+            // the service sets IDLE when a route ends, or is stopped from the notification
+            if (PrefManager.routeState == RoutePlaybackService.IDLE) { showSetup(); return }
             val lat = PrefManager.getLat; val lng = PrefManager.getLng
             setTraveler(lat, lng)
-            updateTravelStats(lat, lng)
+            updateTravelStats()
             travelerHandler.postDelayed(this, 1000)
         }
     }
@@ -336,21 +323,51 @@ abstract class BaseMapActivity: AppCompatActivity() {
     }
 
     private fun setupRouteMode() {
-        updateSpeedLabel()
-        binding.routeGpx.setOnClickListener {
+        val b = binding
+        b.routeGpx.setOnClickListener {
             if (checkPermissions()) gpxLauncher.launch(arrayOf("*/*")) else requestPermissions()
         }
-        binding.speedMinus.setOnClickListener { speedKmh = (speedKmh - 10).coerceAtLeast(5); updateSpeedLabel() }
-        binding.speedPlus.setOnClickListener { speedKmh = (speedKmh + 10).coerceAtMost(300); updateSpeedLabel() }
-        binding.routeStart.setOnClickListener { startRoutePlayback() }
-        binding.routeStop.setOnClickListener { stopRoutePlayback() }
-        binding.routeCancel.setOnClickListener { resetRoute() }
-        binding.routeSwap.setOnClickListener { swapAB() }
-        binding.travelExpand.setOnClickListener {
-            val shown = binding.travelDetails.visibility != View.VISIBLE
-            binding.travelDetails.visibility = if (shown) View.VISIBLE else View.GONE
-            binding.travelExpand.rotation = if (shown) 90f else 270f
+        // presets set the slider; dragging it keeps a preset selected only while it matches
+        b.speedSlider.value = speedKmh.toFloat()
+        syncSpeedPreset()
+        updateSpeedLabel()
+        b.speedSlider.addOnChangeListener { _, v, fromUser ->
+            speedKmh = v.roundToInt()
+            if (fromUser) syncSpeedPreset()
+            updateSpeedLabel()
+            updateSummary()
         }
+        b.speedPresets.setOnCheckedStateChangeListener { _, ids ->
+            speedPresets[ids.firstOrNull()]?.let { b.speedSlider.value = it.toFloat() }
+        }
+        showVariation(b.variationSlider.value)
+        b.variationSlider.addOnChangeListener { _, v, _ -> showVariation(v) }
+        b.routeMode.addOnButtonCheckedListener { _, id, checked ->
+            if (checked) playMode = when (id) {
+                R.id.mode_loop -> RouteMath.LOOP
+                R.id.mode_pingpong -> RouteMath.PING_PONG
+                else -> RouteMath.ONCE
+            }
+        }
+        b.routeStart.setOnClickListener { startRoutePlayback() }
+        b.routeStop.setOnClickListener { stopRoutePlayback() }
+        b.routePause.setOnClickListener { RoutePlaybackService.togglePause(this) }
+        b.routeNext.setOnClickListener { RoutePlaybackService.skip(this) }
+        b.routeCancel.setOnClickListener { resetRoute() }
+        b.routeUndo.setOnClickListener { undoStop() }
+        b.routeSwap.setOnClickListener {
+            stops.reverse(); stopNames.reverse()
+            renderStops()
+            routeStops()
+        }
+        b.travelExpand.setOnClickListener {
+            val shown = b.travelDetails.visibility != View.VISIBLE
+            b.travelDetails.visibility = if (shown) View.VISIBLE else View.GONE
+            b.travelExpand.rotation = if (shown) 90f else 270f
+        }
+        // pause / resume may come from the notification too
+        PrefManager.changed.observe(this) { if (b.routeTravel.isVisible) renderPause() }
+        renderStops()
     }
 
     private fun showSetup() { binding.routeSetup.visibility = View.VISIBLE; binding.routeTravel.visibility = View.GONE }
@@ -358,55 +375,121 @@ abstract class BaseMapActivity: AppCompatActivity() {
 
     private fun updateSpeedLabel() { binding.speedValue.text = getString(R.string.route_speed_fmt, speedKmh) }
 
+    private fun syncSpeedPreset() {
+        val id = speedPresets.entries.firstOrNull { it.value == speedKmh }?.key
+        if (id != null) binding.speedPresets.check(id) else binding.speedPresets.clearCheck()
+    }
+
+    private fun showVariation(v: Float) {
+        binding.variationValue.text = if (v == 0f) getString(R.string.jitter_off) else "±${v.roundToInt()}%"
+    }
+
     // Flavors call this from onMapClick; returns true when route mode consumed the tap.
+    // Each tap adds a stop: the first is A, the last the destination, the rest are via stops.
     protected fun onMapTapped(latTapped: Double, lngTapped: Double): Boolean {
         if (!routeMode) return false
-        if (aPoint == null) {
-            aPoint = latTapped to lngTapped
-            setTraveler(latTapped, lngTapped)
-            binding.routeAName.text = getString(R.string.route_locating)
-            lifecycleScope.launch { aName = shortAddress(latTapped, lngTapped); binding.routeAName.text = aName }
-        } else {
-            bPoint = latTapped to lngTapped
-            binding.routeBName.text = getString(R.string.route_locating)
-            lifecycleScope.launch { bName = shortAddress(latTapped, lngTapped); binding.routeBName.text = bName }
-            routeAtoB()
+        if (binding.routeTravel.isVisible) return true // the route is fixed while travelling
+        val p = RoutePoint(latTapped, lngTapped)
+        stops += p
+        stopNames += getString(R.string.route_locating)
+        renderStops()
+        lifecycleScope.launch {
+            val name = shortAddress(latTapped, lngTapped)
+            val i = stops.indexOfFirst { it === p } // it may have been undone or swapped meanwhile
+            if (i >= 0) { stopNames[i] = name; renderStops() }
         }
+        routeStops()
         return true
     }
 
-    private fun routeAtoB() {
-        val a = aPoint ?: return
-        val b = bPoint ?: return
+    private fun renderStops() {
+        val b = binding
+        b.routeAName.text = stopNames.firstOrNull() ?: getString(R.string.route_pick_a)
+        b.routeBName.text = when {
+            stops.size < 2 -> getString(R.string.route_b_placeholder)
+            stops.size == 2 -> stopNames.last()
+            else -> resources.getQuantityString(R.plurals.route_via, stops.size - 2, stopNames.last(), stops.size - 2)
+        }
+        b.routeBName.setTextColor(getColor(if (stops.size < 2) R.color.glass_ink_dim else R.color.glass_ink))
+        b.routeUndo.isEnabled = stops.isNotEmpty()
+        b.routeUndo.alpha = if (b.routeUndo.isEnabled) 1f else 0.35f
+        b.routeSwap.isEnabled = stops.size >= 2
+        b.routeSwap.alpha = if (b.routeSwap.isEnabled) 1f else 0.35f
+    }
+
+    // road route through every stop; with one stop there is nothing to route yet
+    private fun routeStops() {
+        val pts = stops.toList()
+        routeJob?.cancel()
+        roadPoints = null
         binding.routeStart.isEnabled = false
+        if (pts.size < 2) {
+            binding.routeSummaryTv.visibility = View.GONE
+            clearRoute()
+            pts.firstOrNull()?.let { setTraveler(it.lat, it.lng) }
+            return
+        }
         binding.routeSummaryTv.visibility = View.VISIBLE
         binding.routeSummaryTv.text = getString(R.string.route_routing)
-        lifecycleScope.launch {
-            val road = Routing.road(RoutePoint(a.first, a.second), RoutePoint(b.first, b.second))
+        routeJob = lifecycleScope.launch {
+            val road = Routing.road(pts)
             if (road.size < 2) { binding.routeSummaryTv.text = getString(R.string.route_no_road); return@launch }
-            roadPoints = road
-            totalMeters = RouteMath.pathLength(road)
-            drawRoute(road.map { it.lat to it.lng })
-            val mins = (totalMeters / (speedKmh / 3.6) / 60.0).roundToInt().coerceAtLeast(1)
-            binding.routeSummaryTv.text = getString(R.string.route_summary, formatDistance(totalMeters), "$mins min")
-            binding.routeStart.isEnabled = true
+            setRoad(road, pts)
         }
     }
 
-    private fun swapAB() {
-        val a = aPoint; val b = bPoint ?: return
-        aPoint = b; bPoint = a
-        val an = aName; aName = bName; bName = an
-        binding.routeAName.text = aName
-        binding.routeBName.text = bName
-        routeAtoB()
+    private fun setRoad(road: List<RoutePoint>, via: List<RoutePoint>) {
+        roadPoints = road
+        totalMeters = RouteMath.pathLength(road)
+        stopDistances = via.drop(1).map { RouteMath.distanceAlong(road, it.lat, it.lng) }.toDoubleArray()
+        drawRoute(road.map { it.lat to it.lng })
+        binding.routeSummaryTv.visibility = View.VISIBLE
+        updateSummary()
+        binding.routeStart.isEnabled = true
+    }
+
+    private fun updateSummary() {
+        if (roadPoints == null) return
+        val mins = (totalMeters / (speedKmh / 3.6) / 60.0).roundToInt().coerceAtLeast(1)
+        val time = if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"
+        val base = getString(R.string.route_summary, formatDistance(totalMeters), time)
+        binding.routeSummaryTv.text =
+            if (stops.size > 2) base + " · " + resources.getQuantityString(R.plurals.route_stops, stops.size, stops.size) else base
+    }
+
+    private fun undoStop() {
+        if (stops.isEmpty()) return
+        stops.removeAt(stops.lastIndex)
+        stopNames.removeAt(stopNames.lastIndex)
+        if (stops.isEmpty()) { resetRoute(); return }
+        renderStops()
+        routeStops()
+    }
+
+    // a GPX track replaces the stops: its own geometry (and altitudes), A and B at its ends
+    private fun loadGpx(track: List<RoutePoint>) {
+        resetRoute()
+        val ends = listOf(track.first(), track.last())
+        stops += ends
+        stopNames += ends.map { getString(R.string.route_locating) }
+        renderStops()
+        ends.forEach { p ->
+            lifecycleScope.launch {
+                val name = shortAddress(p.lat, p.lng)
+                val i = stops.indexOfFirst { it === p }
+                if (i >= 0) { stopNames[i] = name; renderStops() }
+            }
+        }
+        setRoad(track, ends)
     }
 
     private fun startRoutePlayback() {
         val road = roadPoints ?: return
-        RoutePlaybackService.start(this, road, speedKmh / 3.6f, loop = false)
-        binding.travelDetails.text = "A  $aName\nB  $bName"
+        RoutePlaybackService.start(this, road, speedKmh / 3.6f, binding.variationSlider.value / 100f, playMode, stopDistances)
+        binding.travelDetails.text = stopNames.withIndex().joinToString("\n") { (i, n) -> "${'A' + i}  $n" }
         showTravel()
+        renderPause()
+        travelerHandler.removeCallbacks(travelerTick)
         travelerHandler.post(travelerTick)
     }
 
@@ -416,27 +499,39 @@ abstract class BaseMapActivity: AppCompatActivity() {
         showSetup()
     }
 
-    private fun updateTravelStats(lat: Double, lng: Double) {
-        val road = roadPoints ?: return
-        val travelled = RouteMath.distanceAlong(road, lat, lng)
+    private fun renderPause() {
+        val paused = PrefManager.routeState == RoutePlaybackService.PAUSED
+        binding.routePause.setText(if (paused) R.string.route_resume else R.string.route_pause)
+        binding.travelTitle.setText(if (paused) R.string.route_paused else R.string.route_travelling)
+    }
+
+    private fun updateTravelStats() {
+        if (roadPoints == null) return
+        val travelled = PrefManager.routeAlong.toDouble() // exact, from the service; on a ping-pong it counts back down
         binding.travelDist.text = formatDistance(travelled)
         val mps = PrefManager.speed
         binding.travelSpeed.text = getString(R.string.route_speed_fmt, (mps * 3.6).roundToInt())
+        binding.travelHeading.text = RouteMath.compass(PrefManager.bearing) ?: "—"
         binding.travelProgress.setProgressCompat(
             if (totalMeters > 0) (travelled / totalMeters * 100).roundToInt().coerceIn(0, 100) else 0, true
         )
         val remaining = (totalMeters - travelled).coerceAtLeast(0.0)
-        val eta = if (mps > 0.5f) (remaining / mps).roundToInt() else 0
-        binding.travelEta.text = String.format("%d:%02d", eta / 60, eta % 60)
+        // no arrival time while stopped (paused, or still pulling away)
+        binding.travelEta.text = if (mps > 0.5f) {
+            val eta = (remaining / mps).roundToInt()
+            String.format("%d:%02d", eta / 60, eta % 60)
+        } else "—"
+        renderPause()
     }
 
     private fun resetRoute() {
-        aPoint = null; bPoint = null; roadPoints = null; aName = ""; bName = ""; totalMeters = 0.0
-        binding.routeAName.text = getString(R.string.route_pick_a)
-        binding.routeBName.text = getString(R.string.route_b_placeholder)
+        routeJob?.cancel()
+        stops.clear(); stopNames.clear(); stopDistances = DoubleArray(0)
+        roadPoints = null; totalMeters = 0.0
         binding.routeSummaryTv.visibility = View.GONE
         binding.routeStart.isEnabled = false
         travelerHandler.removeCallbacks(travelerTick)
+        renderStops()
         showSetup()
         clearRoute()
     }
