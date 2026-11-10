@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/tab_teleport" android:icon="@drawable/ic_place" android:title="@string/tab_teleport" />
+    <item android:id="@+id/tab_routes" android:icon="@drawable/ic_route" android:title="@string/tab_routes" />
+    <item android:id="@+id/tab_targets" android:icon="@drawable/ic_advanced_hook" android:title="@string/tab_targets" />
+    <item android:id="@+id/tab_saved" android:icon="@drawable/ic_bookmark" android:title="@string/tab_saved" />
+</menu>

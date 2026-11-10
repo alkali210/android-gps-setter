@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hook settings, shown on the Targets tab (ActivitySettings.XposedPreferenceFragment) -->
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <PreferenceCategory android:title="@string/hook_settings">
+
+        <SwitchPreferenceCompat
+            android:title="@string/advanced_hook"
+            android:summary="@string/advanced_summary"
+            android:key="system_hooked"
+            android:icon="@drawable/ic_advanced_hook"
+            android:widgetLayout="@layout/preference_switch_widget"
+        />
+
+        <EditTextPreference
+            android:defaultValue="10"
+            android:digits="0123456789"
+            android:key="accuracy_level"
+            android:title="@string/settings_of_accuracy"
+            android:icon="@drawable/ic_accuracy"
+            android:summary="10 m" />
+
+        <SwitchPreferenceCompat
+            android:title="@string/random_position"
+            android:summary="@string/random_position_summary"
+            android:icon="@drawable/ic_random_position"
+            android:key="random_position"
+            android:widgetLayout="@layout/preference_switch_widget"
+        />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

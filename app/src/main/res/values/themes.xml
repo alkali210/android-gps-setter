@@ -25,7 +25,7 @@
     </style>
     <style name="ShapeAppearance.GPSSetter.Dialog" parent="">
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">24dp</item>
+        <item name="cornerSize">18dp</item>
     </style>
 
     <!-- Accent overlays; applied at runtime from the chosen accent (see Accent.kt) -->

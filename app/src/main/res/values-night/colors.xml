@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- glassmorphism over the dark map -->
-    <color name="glass_fill">#B315181D</color>
-    <color name="glass_stroke">#26FFFFFF</color>
-    <color name="glass_ink">#E8EBF0</color>
-    <color name="glass_ink_dim">#9AA3B2</color>
-    <color name="glass_dialog_fill">#F2191C22</color>
+    <!-- tactical dark: near-black panels over the dark map, cool ink, hairline edges -->
+    <color name="glass_fill">#F20D1117</color>
+    <color name="glass_stroke">#2EFFFFFF</color>
+    <color name="glass_ink">#E6EDF3</color>
+    <color name="glass_ink_dim">#8B98A9</color>
+    <color name="glass_dialog_fill">#F70D1117</color>
+
+    <color name="screen_bg">#080B10</color>
+    <color name="bar_bg">#0D1117</color>
+
+    <color name="status_ok">#22C55E</color>
+    <color name="status_bad">#F87171</color>
 </resources>

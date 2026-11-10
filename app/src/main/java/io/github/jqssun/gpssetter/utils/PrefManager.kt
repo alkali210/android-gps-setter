@@ -46,9 +46,17 @@ object PrefManager   {
     // LSPosed's remote preferences (libxposed service) whenever they change
     @Volatile private var remote: SharedPreferences? = null
     val moduleActive = MutableLiveData<Boolean>()
+    // e.g. "LSPosed 2.0.1 · API 102", for the Targets tab; set before moduleActive flips to true
+    @Volatile var framework: String? = null
+        private set
     private val mirror = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> syncRemote() }
 
     fun onServiceBind(service: XposedService) {
+        framework = try {
+            "${service.frameworkName} ${service.frameworkVersion} · API ${service.apiVersion}"
+        } catch (e: RuntimeException) {
+            null
+        }
         remote = try {
             service.getRemotePreferences(Xshare.GROUP)
         } catch (e: RuntimeException) {

@@ -18,6 +18,7 @@ import android.text.TextWatcher
 import android.text.method.DigitsKeyListener
 import android.view.MenuItem
 import android.widget.EditText
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
@@ -29,6 +30,7 @@ import androidx.preference.EditTextPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceDataStore
 import androidx.preference.PreferenceFragmentCompat
+import io.github.jqssun.gpssetter.BuildConfig
 import io.github.jqssun.gpssetter.R
 import io.github.jqssun.gpssetter.databinding.ActivitySettingsBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -124,28 +126,9 @@ class ActivitySettings : AppCompatActivity() {
             preferenceManager?.preferenceDataStore = SettingPreferenceDataStore()
             setPreferencesFromResource(R.xml.preferences, rootKey)
 
-            findPreference<EditTextPreference>("accuracy_level")?.let {
-                it.summary = "${PrefManager.accuracy} m"
-                it.setOnBindEditTextListener { editText ->
-                    editText.inputType = InputType.TYPE_CLASS_NUMBER;
-                    editText.keyListener = DigitsKeyListener.getInstance("0123456789.,");
-                    editText.addTextChangedListener(getCommaReplacerTextWatcher(editText));
-                }
-
-                it.setOnPreferenceChangeListener { preference, newValue ->
-                    try {
-                        newValue as String?
-                        preference.summary = "$newValue m"
-                    } catch (n: NumberFormatException) {
-                        n.printStackTrace()
-                        Toast.makeText(
-                            requireContext(),
-                            getString(R.string.enter_valid_input),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                    true
-                }
+            findPreference<Preference>("about")?.let {
+                it.summary = BuildConfig.VERSION_NAME
+                it.setOnPreferenceClickListener { showAbout(); true }
             }
 
             findPreference<DropDownPreference>("dark_theme")?.setOnPreferenceChangeListener { _, newValue ->
@@ -198,6 +181,47 @@ class ActivitySettings : AppCompatActivity() {
             return false
         }
 
+
+        private fun showAbout() {
+            val view = layoutInflater.inflate(R.layout.about, null)
+            view.findViewById<TextView>(R.id.design_about_title).text = getString(R.string.app_name)
+            view.findViewById<TextView>(R.id.design_about_version).text = BuildConfig.VERSION_NAME
+            view.findViewById<TextView>(R.id.design_about_info).text = getString(R.string.about_info)
+            MaterialAlertDialogBuilder(requireContext()).setView(view).show()
+        }
+    }
+
+    // Hook settings; hosted on the map screen's Targets tab, not in this activity.
+    class XposedPreferenceFragment : PreferenceFragmentCompat() {
+
+        override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+            preferenceManager?.preferenceDataStore = SettingPreferenceDataStore()
+            setPreferencesFromResource(R.xml.xposed_preferences, rootKey)
+
+            findPreference<EditTextPreference>("accuracy_level")?.let {
+                it.summary = "${PrefManager.accuracy} m"
+                it.setOnBindEditTextListener { editText ->
+                    editText.inputType = InputType.TYPE_CLASS_NUMBER;
+                    editText.keyListener = DigitsKeyListener.getInstance("0123456789.,");
+                    editText.addTextChangedListener(getCommaReplacerTextWatcher(editText));
+                }
+
+                it.setOnPreferenceChangeListener { preference, newValue ->
+                    try {
+                        newValue as String?
+                        preference.summary = "$newValue m"
+                    } catch (n: NumberFormatException) {
+                        n.printStackTrace()
+                        Toast.makeText(
+                            requireContext(),
+                            getString(R.string.enter_valid_input),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    true
+                }
+            }
+        }
 
         private fun getCommaReplacerTextWatcher(editText: EditText): TextWatcher {
             return object : TextWatcher {
