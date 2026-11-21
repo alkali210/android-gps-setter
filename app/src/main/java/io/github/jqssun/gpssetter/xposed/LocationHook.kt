@@ -13,7 +13,6 @@ import io.github.libxposed.api.XposedModule
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 internal class SystemFixCadence {
@@ -34,7 +33,8 @@ object LocationHook {
 
     private const val TAG = "GPS Setter"
     @Volatile private var current = HookSettings()
-    private val rand: Random = Random()
+    private var rawSettings = current
+    private val randomPosition = RandomPosition()
     private lateinit var module: XposedModule
     private lateinit var settings: Xshare
     private var systemProcess = false
@@ -54,7 +54,8 @@ object LocationHook {
         settings = if (system) Xshare(prefs) {
             ParcelFileDescriptor.AutoCloseInputStream(xposed.openRemoteFile(Xshare.FILE))
         } else Xshare(prefs)
-        current = settings.initialSettings ?: HookSettings()
+        rawSettings = settings.initialSettings ?: HookSettings()
+        current = rawSettings
     }
 
     // System callbacks use the worker's in-memory fix; never open files on framework threads.
@@ -69,12 +70,12 @@ object LocationHook {
     @Synchronized
     private fun updateLocation(nowMs: Long, maxIntervalMs: Long = Long.MAX_VALUE) {
         try {
-            val next = settings.refresh(nowMs, maxIntervalMs) ?: return
+            val refreshed = settings.refresh(nowMs, maxIntervalMs)
+            if (refreshed == null && nowMs < randomPosition.nextSampleMs) return
+            val next = refreshed ?: rawSettings
             if (next.isStarted != current.isStarted) module.log(Log.INFO, TAG, "Spoofing ${if (next.isStarted) "on" else "off"}")
-            current = if (next.isStarted && next.isRandomPosition) next.copy(
-                latitude = next.latitude + GeoOffset.latOffsetDegrees((rand.nextInt(51) - 25).toDouble()),
-                longitude = next.longitude + GeoOffset.lngOffsetDegrees((rand.nextInt(51) - 25).toDouble(), next.latitude),
-            ) else next
+            rawSettings = next
+            current = randomPosition.apply(next, nowMs, minOf(next.locationUpdateIntervalMs, maxIntervalMs))
         } catch (e: Exception) {
             module.log(Log.ERROR, TAG, "Failed to read settings", e)
         }
@@ -223,9 +224,10 @@ object LocationHook {
                 var sleepMs = Xshare.MAX_CONTROL_INTERVAL_MS
                 try {
                     val now = SystemClock.elapsedRealtime()
-                    if (now >= settings.nextReadMs) updateLocation(now)
+                    val readOrSampleAt = minOf(settings.nextReadMs, randomPosition.nextSampleMs)
+                    if (now >= readOrSampleAt) updateLocation(now)
                     val fix = current
-                    var wakeAt = settings.nextReadMs
+                    var wakeAt = minOf(settings.nextReadMs, randomPosition.nextSampleMs)
                     val generate = generateFixes
                     if (generate != null && fix.isStarted) {
                         cadence.generateIfDue(now, lastGpsReportTime, fix, generate)

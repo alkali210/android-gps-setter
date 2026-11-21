@@ -67,6 +67,29 @@ class RoutePlaybackCadenceTest {
         assertEquals(listOf(interval), attempts)
     }
 
+    @Test fun maximumCadencePicksUpPauseAndFasterIntervalAtTheNextPoll() {
+        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("cadence_control", Context.MODE_PRIVATE)
+        val moving = HookSettings(isStarted = true, speed = 10f, locationUpdateIntervalMs = 10_000L, revision = 1)
+        val paused = moving.copy(speed = 0f, revision = 2)
+        val faster = moving.copy(locationUpdateIntervalMs = 200L, revision = 3)
+        var file = moving.encode()
+        moving.publish(prefs)
+        val system = Xshare(prefs) { file.inputStream() }
+        assertEquals(moving, system.refresh(0))
+
+        // A Pause keeps spoofing the held position, with zero speed.
+        file = paused.encode()
+        assertNull(system.refresh(999L))
+        assertEquals(paused, system.refresh(1000L))
+
+        faster.publish(prefs)
+        assertNull(system.refresh(1999L))
+        val updated = system.refresh(2000L)!!
+        assertEquals(faster, updated)
+        assertEquals(2200L, system.nextReadMs)
+        assertEquals(2050L, SystemFixCadence().nextFixMs(lastGpsReportMs = 1850L, settings = updated))
+    }
+
     private fun exerciseCadence(intervalMs: Long) {
         val context: Context = RuntimeEnvironment.getApplication()
         val controller = Robolectric.buildService(RoutePlaybackService::class.java).create()

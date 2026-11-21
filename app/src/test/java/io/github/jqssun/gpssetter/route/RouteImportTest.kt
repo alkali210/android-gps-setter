@@ -47,6 +47,19 @@ class RouteImportTest {
         assertEquals(route, importRoute(gpx))
     }
 
+    @Test fun exportedTrackPointsAndStopsUseValidGpxAntimeridianLongitude() {
+        val doc = importRoute("""{"type":"LineString","coordinates":[[180,2],[179.999999,4]]}""")!!
+        val stop = RouteStop(doc.points.first(), "East")
+        val gpx = doc.copy(stops = listOf(stop)).toGpx("Antimeridian")
+
+        val longitudes = Regex("""lon="([^"]+)"""").findAll(gpx).map { it.groupValues[1] }.toList()
+        assertEquals(listOf("-180.0", "-180.0", "179.999999"), longitudes)
+        val result = importRoute(gpx)!!
+        val antimeridian = stop.point.copy(lng = -180.0)
+        assertEquals(listOf(antimeridian, doc.points.last()), result.points)
+        assertEquals(listOf(stop.copy(point = antimeridian)), result.stops)
+    }
+
     @Test fun savedGeoJsonNamesAndStopLabelsRemainValidGpxText() {
         val doc = importRoute("""{"type":"Feature","properties":{"name":"A\u0000 & 港🚢"},
             "geometry":{"type":"LineString","coordinates":[[1,2],[3,4]]}}""")!!
