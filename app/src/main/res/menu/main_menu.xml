@@ -22,6 +22,11 @@
         android:icon="@drawable/ic_outline_favorite_list"/>
 
     <item
+        android:id="@+id/saved_routes"
+        android:title="@string/saved_routes"
+        android:icon="@drawable/ic_outline_favorite_list"/>
+
+    <item
         android:id="@+id/play_route"
         android:title="@string/play_route"
         android:icon="@drawable/ic_play"/>

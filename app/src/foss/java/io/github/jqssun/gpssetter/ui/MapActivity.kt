@@ -202,6 +202,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
     private var travelerMarker: Marker? = null
 
     override fun drawRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean) {
+        if (!::mMap.isInitialized || mMap.style?.isFullyLoaded != true) return
         clearRoute()
         if (points.size < 2) return
         val lls = points.map { LatLng(it.first, it.second) }

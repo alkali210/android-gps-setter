@@ -50,6 +50,8 @@ import io.github.jqssun.gpssetter.route.GpxPlaybackState
 import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
 import io.github.jqssun.gpssetter.route.RoutePoint
 import io.github.jqssun.gpssetter.route.Routing
+import io.github.jqssun.gpssetter.route.RouteDocument
+import io.github.jqssun.gpssetter.route.RouteStop
 import io.github.jqssun.gpssetter.route.parseGpx
 import kotlin.math.roundToInt
 import io.github.jqssun.gpssetter.databinding.ActivityMapBinding
@@ -125,7 +127,25 @@ abstract class BaseMapActivity: AppCompatActivity() {
             }
         }
 
+    internal fun playSavedRoute(points: List<RoutePoint>) {
+        if (checkPermissions()) askSpeedAndPlay(points) else requestPermissions()
+    }
+
+    internal fun plannedRoute(): RouteDocument? {
+        val points = roadPoints?.takeIf { routeMode && binding.routeStart.isEnabled } ?: return null
+        val stops = listOfNotNull(
+            aPoint?.let { RouteStop(RoutePoint(it.first, it.second), aName.ifBlank { null }) },
+            bPoint?.let { RouteStop(RoutePoint(it.first, it.second), bName.ifBlank { null }) },
+        )
+        return RouteDocument(stops.mapNotNull { it.name }.joinToString(" → ").ifBlank { null }, points, stops)
+    }
+
     private fun askSpeedAndPlay(route: List<io.github.jqssun.gpssetter.route.RoutePoint>) {
+        // The service passes three coordinate arrays in one Binder transaction.
+        if (route.size > 32_000) {
+            showToast(getString(R.string.library_play_limit))
+            return
+        }
         val fields = layoutInflater.inflate(R.layout.dialog_gpx_playback, null)
         val speed = fields.findViewById<EditText>(R.id.gpx_setup_speed)
         val interval = fields.findViewById<EditText>(R.id.gpx_update_interval).apply {
@@ -556,6 +576,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
                 R.id.import_favorites -> {
                     importFavoritesLauncher.launch(arrayOf("application/json"))
                 }
+                R.id.saved_routes -> RouteLibraryDialog().show(supportFragmentManager, "route_library")
                 R.id.play_route -> {
                     if (checkPermissions()) gpxLauncher.launch(arrayOf("*/*")) else requestPermissions()
                 }
