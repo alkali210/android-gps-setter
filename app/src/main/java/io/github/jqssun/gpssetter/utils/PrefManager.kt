@@ -38,13 +38,31 @@ object PrefManager   {
     private const val ENABLE_JOYSTICK = "joystick_enabled"
     private const val KEEP_SCREEN_ON_DURING_ROUTE = "keep_screen_on_during_route"
     private const val ACCENT = "accent_color"
+    private const val RESERVED_REVISION = "hook_reserved_revision"
+    private const val REVISION_BATCH_SIZE = 65_536L
 
 
     private val pref: SharedPreferences by lazy {
         gsApp.getSharedPreferences("${BuildConfig.APPLICATION_ID}_prefs", Context.MODE_PRIVATE)
     }
 
-    private class Remote(val prefs: SharedPreferences, val executor: Executor, val writeFile: (ByteArray) -> Unit)
+    private class Remote(val prefs: SharedPreferences, val executor: Executor, val writeFile: (ByteArray) -> Unit) {
+        private var revision = 0L
+        private var reservedThrough = 0L
+
+        fun nextRevision(local: SharedPreferences): Long? {
+            if (revision == reservedThrough) {
+                // Reserve before publishing so a new process can never reuse a revision.
+                // A range avoids synchronous disk writes on each route tick.
+                val previous = local.getLong(RESERVED_REVISION, 0L)
+                val reserved = previous + REVISION_BATCH_SIZE
+                if (!local.edit().putLong(RESERVED_REVISION, reserved).commit()) return null
+                revision = previous
+                reservedThrough = reserved
+            }
+            return ++revision
+        }
+    }
     private val writer = Executors.newSingleThreadExecutor()
     private val queued = AtomicBoolean()
     @Volatile private var remote: Remote? = null
@@ -86,8 +104,17 @@ object PrefManager   {
             // one local edit, and recheck the binding in case the service died or reconnected.
             queued.set(false)
             val target = remote ?: return@execute
-            val snapshot = HookSettings.fromPreferences(pref, DEF_LAT, DEF_LNG)
-            snapshot.publish(target.prefs)
+            val revision = target.nextRevision(pref)
+            if (revision == null) {
+                Timber.e("Couldn't reserve a hook settings revision")
+                return@execute
+            }
+            val snapshot = HookSettings.fromLocalPreferences(pref, DEF_LAT, DEF_LNG, revision)
+            try {
+                snapshot.publish(target.prefs)
+            } catch (e: RuntimeException) {
+                Timber.e(e, "Couldn't push hook settings")
+            }
             try {
                 target.writeFile(snapshot.encode())
             } catch (e: Exception) {
@@ -141,7 +168,7 @@ object PrefManager   {
     }
 
     var isSystemHooked : Boolean
-        get() = pref.getBoolean(HOOKED_SYSTEM, true) // must match Xshare.isHookedSystem default
+        get() = pref.getBoolean(HOOKED_SYSTEM, true) // must match HookSettings.isHookedSystem default
         set(value) { pref.edit().putBoolean(HOOKED_SYSTEM,value).applyHookSettings() }
 
     var isRandomPosition :Boolean

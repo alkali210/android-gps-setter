@@ -6,6 +6,7 @@ import android.os.Looper
 import io.github.jqssun.gpssetter.utils.PrefManager
 import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
 import io.github.jqssun.gpssetter.xposed.HookSettings
+import io.github.jqssun.gpssetter.xposed.SystemFixCadence
 import io.github.jqssun.gpssetter.xposed.Xshare
 import org.junit.Assert.*
 import org.junit.Test
@@ -23,6 +24,48 @@ class RoutePlaybackCadenceTest {
     @Test fun fastCadenceMovesOnlyEvery200Milliseconds() = exerciseCadence(200L)
 
     @Test fun slowCadenceMovesOnlyEvery2000Milliseconds() = exerciseCadence(2000L)
+
+    @Test fun longestCadenceMovesOnlyEvery10000Milliseconds() = exerciseCadence(LocationUpdateInterval.MAX_MS)
+
+    @Test fun maximumCadencePicksUpPushedStopWithinOneSecondWithoutGeneratingEarlyFixes() {
+        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("cadence_control", Context.MODE_PRIVATE)
+        val interval = LocationUpdateInterval.MAX_MS
+        val moving = HookSettings(isStarted = true, locationUpdateIntervalMs = interval, revision = 1)
+        val stopped = moving.copy(isStarted = false, revision = 2)
+        val file = moving.encode()
+        moving.publish(prefs)
+        val system = Xshare(prefs) { file.inputStream() }
+        val cadence = SystemFixCadence()
+        val attempts = mutableListOf<Long>()
+        var settings = moving
+        var lastGpsReportMs = 0L
+        fun step(nowMs: Long) {
+            settings = system.refresh(nowMs) ?: settings
+            if (settings.isStarted) cadence.generateIfDue(nowMs, lastGpsReportMs, settings) { attempts += nowMs }
+        }
+
+        for (time in 0L until interval step 1000L) {
+            step(time)
+            assertEquals(time + 1000L, system.nextReadMs)
+            assertEquals(interval, cadence.nextFixMs(lastGpsReportMs, settings))
+            assertTrue(attempts.isEmpty())
+        }
+        step(interval - 1L)
+        assertTrue(attempts.isEmpty())
+        step(interval)
+        assertEquals(listOf(interval), attempts)
+        assertEquals(2L * interval, cadence.nextFixMs(lastGpsReportMs, settings))
+
+        lastGpsReportMs = interval + 500L
+        assertEquals(lastGpsReportMs + interval, cadence.nextFixMs(lastGpsReportMs, settings))
+        stopped.publish(prefs) // Stop just after a poll, with the old file still in place.
+        step(interval + 999L)
+        assertEquals(moving, settings)
+        step(interval + 1000L)
+        assertEquals(stopped, settings)
+        step(lastGpsReportMs + interval)
+        assertEquals(listOf(interval), attempts)
+    }
 
     private fun exerciseCadence(intervalMs: Long) {
         val context: Context = RuntimeEnvironment.getApplication()
@@ -42,8 +85,8 @@ class RoutePlaybackCadenceTest {
             RoutePlaybackService.start(context, longRoute, 10f, false, gpx = true, updateIntervalMs = intervalMs)
             deliver()
             assertInterval()
-            // Warm up the real acceleration ramp; four seconds is a whole number of either cadence.
-            advance(4000)
+            // Warm up the four-second acceleration ramp and end on a tick boundary.
+            advance((4000L + intervalMs - 1L) / intervalMs * intervalMs)
             repeat(3) {
                 val before = fix()
                 advance(intervalMs - 1)

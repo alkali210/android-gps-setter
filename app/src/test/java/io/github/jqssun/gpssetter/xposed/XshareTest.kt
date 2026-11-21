@@ -4,6 +4,7 @@ import android.content.Context
 import io.github.jqssun.gpssetter.utils.PrefManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -46,20 +47,74 @@ class XshareTest {
         assertEquals(route, system.refresh(now + 200))
     }
 
-    @Test fun readsOnceAtTheConfiguredCadenceAndKeepsCheckingWhileIdle() {
+    @Test fun newerPushedStopWinsAgainstStaleMissingOrTruncatedFile() {
+        val moving = route.copy(revision = 1)
+        val stopped = moving.copy(isStarted = false, speed = 0f, bearing = -1f, revision = 2)
+        val stale = moving.encode()
+        val newer = moving.copy(revision = 3).encode()
+        val truncated = newer.copyOf(newer.size - 1)
+        var file: ByteArray? = stale
+        val system = Xshare(prefs) { file?.inputStream() ?: throw FileNotFoundException() }
+        moving.publish(prefs)
+        assertEquals(moving, system.refresh(0))
+
+        stopped.publish(prefs)
+        for ((index, candidate) in listOf(stale, null, truncated).withIndex()) {
+            file = candidate
+            assertEquals(stopped, system.refresh(100L * (index + 1)))
+            // The order also holds if system_server has not cached either transport yet.
+            assertEquals(stopped, Xshare(prefs) { file?.inputStream() ?: throw FileNotFoundException() }.refresh(0))
+        }
+
+        // Once Stop was accepted, even loss or rollback of the pushed copy can't resume spoofing.
+        moving.publish(prefs)
+        file = stale
+        assertEquals(stopped, system.refresh(400))
+        prefs.edit().clear().apply()
+        file = null
+        assertEquals(stopped, system.refresh(500))
+    }
+
+    @Test fun newerCompleteFileWinsAndPartialPushedSnapshotCannotSupersedeIt() {
+        val moving = route.copy(revision = 1)
+        val stopped = moving.copy(isStarted = false, speed = 0f, revision = 2)
+        moving.publish(prefs)
+        var file = stopped.encode()
+        val system = Xshare(prefs) { file.inputStream() }
+        assertEquals(stopped, system.refresh(0))
+
+        val restarted = moving.copy(revision = 3)
+        restarted.publish(prefs)
+        prefs.edit().remove(HookSettings.SPEED).apply()
+        file = moving.encode()
+        assertEquals(stopped, system.refresh(100))
+        assertEquals(moving, Xshare(prefs) { file.inputStream() }.refresh(0))
+
+        restarted.publish(prefs)
+        assertEquals(restarted, system.refresh(200))
+    }
+
+    @Test fun legacyPushedCoordinatesStillWorkWithoutAFile() {
+        prefs.edit().putBoolean(HookSettings.START, true).putFloat("latitude", 12.5f).putFloat("longitude", -32f).apply()
+        val system = Xshare(prefs) { throw FileNotFoundException() }
+        assertEquals(HookSettings(isStarted = true, latitude = 12.5, longitude = -32.0), system.refresh(0))
+    }
+
+    @Test fun pollsAtTheConfiguredCadenceUpToOneSecondAndKeepsCheckingWhileIdle() {
         var opens = 0
         var snapshot = route
         val system = Xshare(prefs) { opens++; snapshot.encode().inputStream() }
         var now = 0L
         for (interval in listOf(100L, 200L, 10_000L)) {
+            val controlInterval = minOf(interval, 1000L)
             repeat(3) {
                 snapshot = snapshot.copy(latitude = snapshot.latitude + 0.00001, locationUpdateIntervalMs = interval)
                 val before = opens
                 assertEquals(snapshot, system.refresh(now))
                 assertNull(system.refresh(now))
-                assertNull(system.refresh(now + interval - 1))
+                assertNull(system.refresh(now + controlInterval - 1))
                 assertEquals(before + 1, opens)
-                now += interval
+                now += controlInterval
             }
         }
         snapshot = snapshot.copy(isStarted = false)
@@ -86,16 +141,22 @@ class XshareTest {
         PrefManager.bindRemote(prefs, { work.addLast(it) }) { writes++; bytes = it }
         try {
             work.removeFirst().run() // initial bind
+            val initial = HookSettings.decode(bytes)!!
+            assertTrue(initial.revision > 0)
             PrefManager.updateMotion(2.0, 3.0, 200.0, 15f, 90f)
             assertEquals(1, work.size)
             work.removeFirst().run()
             assertEquals(2, writes)
+            val firstMotion = HookSettings.decode(bytes)!!
+            assertTrue(firstMotion.revision > initial.revision)
             PrefManager.locationUpdateIntervalMs = 200
             PrefManager.updateMotion(4.0, 5.0, -80.0, 25f, 180f)
             assertEquals(1, work.size)
             work.removeFirst().run()
+            val decoded = HookSettings.decode(bytes)!!
+            assertTrue(decoded.revision > firstMotion.revision)
             val expected = HookSettings(isStarted = true, latitude = 4.0, longitude = 5.0,
-                altitude = -80.0, speed = 25f, bearing = 180f, locationUpdateIntervalMs = 200)
+                altitude = -80.0, speed = 25f, bearing = 180f, locationUpdateIntervalMs = 200, revision = decoded.revision)
             assertEquals(expected, HookSettings.decode(bytes))
             assertEquals(expected, Xshare(prefs).refresh(0))
             assertEquals(3, writes)
@@ -103,8 +164,30 @@ class XshareTest {
             assertEquals(0, work.size)
             PrefManager.update(false, 4.0, 5.0)
             work.removeFirst().run()
+            val stopped = HookSettings.decode(bytes)!!
+            assertTrue(stopped.revision > decoded.revision)
             assertEquals(expected.copy(isStarted = false, altitude = 0.0, speed = 0f, bearing = -1f,
-                locationUpdateIntervalMs = LocationUpdateInterval.DEFAULT_MS), HookSettings.decode(bytes))
+                locationUpdateIntervalMs = LocationUpdateInterval.DEFAULT_MS, revision = stopped.revision), stopped)
+        } finally {
+            PrefManager.onServiceDied()
+        }
+    }
+
+    @Test fun newBindingPublishesNewerStopEvenIfOldFileCannotBeReplaced() {
+        lateinit var file: ByteArray
+        PrefManager.bindRemote(prefs, { it.run() }) { file = it }
+        try {
+            PrefManager.updateMotion(4.0, 5.0, -80.0, 25f, 180f)
+            val moving = HookSettings.decode(file)!!
+            PrefManager.onServiceDied()
+            // A new publisher reserves its own range from the persisted high-water mark.
+            PrefManager.bindRemote(prefs, { it.run() }) { throw FileNotFoundException() }
+            PrefManager.update(false, 4.0, 5.0)
+            val stopped = Xshare(prefs) { file.inputStream() }.refresh(0)!!
+            assertTrue(stopped.revision > moving.revision)
+            assertEquals(moving.copy(isStarted = false, altitude = 0.0, speed = 0f, bearing = -1f,
+                locationUpdateIntervalMs = LocationUpdateInterval.DEFAULT_MS, revision = stopped.revision), stopped)
+            assertEquals(moving, HookSettings.decode(file))
         } finally {
             PrefManager.onServiceDied()
         }

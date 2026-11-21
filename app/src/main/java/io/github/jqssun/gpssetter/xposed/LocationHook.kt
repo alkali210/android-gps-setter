@@ -16,6 +16,20 @@ import java.lang.reflect.Method
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
+internal class SystemFixCadence {
+    private var lastAttemptMs = 0L
+
+    fun nextFixMs(lastGpsReportMs: Long, settings: HookSettings): Long =
+        maxOf(lastGpsReportMs, lastAttemptMs) + settings.locationUpdateIntervalMs
+
+    fun generateIfDue(nowMs: Long, lastGpsReportMs: Long, settings: HookSettings, generate: () -> Unit) {
+        if (nowMs >= nextFixMs(lastGpsReportMs, settings)) {
+            lastAttemptMs = nowMs
+            generate()
+        }
+    }
+}
+
 object LocationHook {
 
     private const val TAG = "GPS Setter"
@@ -40,7 +54,7 @@ object LocationHook {
         settings = if (system) Xshare(prefs) {
             ParcelFileDescriptor.AutoCloseInputStream(xposed.openRemoteFile(Xshare.FILE))
         } else Xshare(prefs)
-        current = HookSettings.fromPreferences(prefs)
+        current = settings.initialSettings ?: HookSettings()
     }
 
     // System callbacks use the worker's in-memory fix; never open files on framework threads.
@@ -204,9 +218,9 @@ object LocationHook {
         if (systemWorkerStarted) return
         systemWorkerStarted = true
         Thread({
-            var lastAttempt = 0L
+            val cadence = SystemFixCadence()
             while (true) {
-                var sleepMs = LocationUpdateInterval.DEFAULT_MS
+                var sleepMs = Xshare.MAX_CONTROL_INTERVAL_MS
                 try {
                     val now = SystemClock.elapsedRealtime()
                     if (now >= settings.nextReadMs) updateLocation(now)
@@ -214,11 +228,8 @@ object LocationHook {
                     var wakeAt = settings.nextReadMs
                     val generate = generateFixes
                     if (generate != null && fix.isStarted) {
-                        if (now - maxOf(lastGpsReportTime, lastAttempt) >= fix.locationUpdateIntervalMs) {
-                            lastAttempt = now
-                            generate()
-                        }
-                        wakeAt = minOf(wakeAt, maxOf(lastGpsReportTime, lastAttempt) + fix.locationUpdateIntervalMs)
+                        cadence.generateIfDue(now, lastGpsReportTime, fix, generate)
+                        wakeAt = minOf(wakeAt, cadence.nextFixMs(lastGpsReportTime, fix))
                     }
                     sleepMs = (wakeAt - SystemClock.elapsedRealtime()).coerceAtLeast(1L)
                 } catch (t: Throwable) {
@@ -253,7 +264,7 @@ object LocationHook {
     fun initSystemHooks(xposed: XposedModule, classLoader: ClassLoader) {
         init(xposed, system = true)
         module.log(Log.INFO, TAG, "Hooking system server (SDK ${Build.VERSION.SDK_INT})")
-        if (!settings.isHookedSystem) {
+        if (!current.isHookedSystem) {
             module.log(Log.INFO, TAG, "System hook disabled in settings")
             return
         }
