@@ -16,6 +16,7 @@ The changes below are relative to varma322's `v0.2.0`, not features newly introd
 - **No camera reset after GPX playback.** Completion updates the endpoint pin without changing the map's zoom, center, bearing or tilt.
 - **GPX display survives theme changes.** Switching light/dark mode in Settings, or through the system while following its theme, restores the GPX route and the current map camera after the page is recreated, without fitting the route again or restarting playback.
 - **Configurable GPX coordinate cadence.** The setup dialog selects the update interval shared by route playback, the system-hook generator and both map location requests. Changing the cadence changes sampling frequency, not travel speed.
+- **Selected upstream ports.** Android 14+ update downloads, a prompt when starting with Android Location off, Vector system-server preference sync, and a Saved routes library. The existing map UI and GPX playback behavior are retained.
 
 Coordinate-conversion, playback-transition and theme-recreation regression tests accompany these changes. Tests do not establish compatibility with every map layer, ROM or Xposed implementation.
 
@@ -37,15 +38,16 @@ Use this fork's [Releases](https://github.com/alkali210/android-gps-setter/relea
 | Full (`app-full-*.apk`) | Google Maps | Google Play services |
 | FOSS (`app-foss-*.apk`) | MapLibre + keyless OpenFreeMap | microG client library |
 
-The build currently produces **arm64-v8a** APKs. Both variants and the varma322 fork share the application ID **`io.github.varma322.gpssetter`**, so they cannot be installed side by side. Installing one over another requires matching signing certificates; otherwise Android requires uninstalling the existing app first. Export favorites before changing installations. The older jqssun app uses a different ID, `io.github.jqssun.gpssetter`.
+The build currently produces **arm64-v8a** APKs. Both variants and the varma322 fork share the application ID **`io.github.varma322.gpssetter`**, so they cannot be installed side by side. Installing one over another requires matching signing certificates; otherwise Android requires uninstalling the existing app first. Export favorites and saved routes before changing installations. The older jqssun app uses a different ID, `io.github.jqssun.gpssetter`.
 
-**The in-app update checker still queries varma322's releases, not this fork.** Leave **Check for updates** disabled if you want to stay on this fork, and obtain its updates from the link above. This README change does not alter the application's update endpoint or signing configuration.
+**The in-app update checker still queries varma322's releases, not this fork.** Leave **Check for updates** disabled if you want to stay on this fork, and obtain its updates from the link above.
 
 ## Requirements
 
 - A rooted Android device with a modern libxposed-capable framework, such as a compatible LSPosed / Vector build. The module declares minimum API **101** and target API **102**, and is built against libxposed **102.0.0**. Legacy LSPosed 1.x is not supported; LSPatch is not supported by this remote-preference setup.
 - **Android 8.1+** (`minSdk 27`). Continuous system-server fix generation requires **Android 12+**; the same behavior is not available on every older Android version.
 - Grant location access for map location/recentering and route playback. Allow notifications to see playback status and its Stop action. The optional joystick requires overlay permission.
+- Android's master **Location** switch must be on to start static spoofing or a route. A start attempt with Location off offers to open Android settings; enable Location and then retry. Stops remain available.
 - Network access for online map tiles, address lookup and road routing. Importing a local GPX file does not require a road-routing request.
 
 ## Setup and use
@@ -63,9 +65,9 @@ Choose **Play route (GPX)** in the drawer, select a file and set **Speed (km/h)*
 
 The app uses this interval for coordinate writes and both map providers' location requests, and mirrors it to the system Hook for generated fixes and cache freshness. Actual callback delivery still depends on Android/provider throttling, real GPS reports and the receiving app's request; this is not a guarantee that every app receives exactly that many callbacks. Restart scoped apps and reboot after installing the updated Hook code; subsequent GPX interval changes do not require a reboot.
 
-The importer reads `trkpt`, `rtept` and `wpt` elements with optional elevation; at least two points are required. Playback uses the chosen speed with an initial acceleration ramp, **not the timestamps recorded in the GPX file**. Distance is integrated over elapsed time so changing the update interval does not change travel speed. The importer is a lightweight parser, not a full GPX/XML implementation; separate tracks/segments are flattened into one sequence.
+The importer reads `trkpt`, `rtept` and `wpt` elements with optional elevation; at least two playback points are required. Waypoints marked as stops are metadata, not extra playback points. Playback uses the chosen speed with an initial acceleration ramp, **not the timestamps recorded in the GPX file**. Distance is integrated over elapsed time so changing the update interval does not change travel speed. Separate tracks and segments are joined into one sequence.
 
-During playback, the home Static / Route panel is hidden. The existing home control shows **Pause** while moving and **Resume** while paused. Pausing holds the current position with spoofing still enabled; resuming continues from that point without counting the paused time as travel.
+During playback, the home Static / Route panel is hidden. The home control and the playback notification both offer **Pause** while moving and **Resume** while paused. Pausing holds the current position with spoofing still enabled; resuming does not count the paused time as travel.
 
 The compact **− / speed / +** bar changes the target speed in **5 km/h** steps. Tap the speed value to enter an exact whole-number speed in km/h (minimum **1 km/h**); confirm to apply it or cancel to leave it unchanged. Both methods work while moving or paused, without restarting the track. The displayed speed is the selected target; movement ramps up toward it. Pause state and target speed survive light/dark theme changes along with the route and camera.
 
@@ -73,7 +75,7 @@ You can move the map, but cannot place a new pin by tapping, searching or choosi
 
 When playback finishes, the home screen returns to **Static**, removes the GPX line and route markers, updates the endpoint marker and enables **Stop**. The camera stays where you left it. Spoofing remains active at the endpoint with motion cleared until you press the home **Stop** button.
 
-**Stop route** in the drawer, or **Stop** in the route playback notification, stops movement, clears the GPX overlay and holds the current point; it does not disable spoofing. Pausing keeps the overlay for later resumption. These home-screen protections are specific to GPX playback and do not imply that every other control, such as a Quick Settings tile or the joystick, is locked.
+**Stop route** in the drawer, or **Stop** in the playback notification, stops movement, clears the GPX overlay and holds the current point; it does not disable spoofing. If no route is running or paused, it does not change the current location or spoofing state. Pausing keeps the overlay for later resumption.
 
 While the GPX session is active or paused, its geometry and the current camera are retained across theme/configuration recreation. The new map redraws the route without changing the saved zoom, center, bearing or tilt; FOSS restores the overlay after its new style has loaded. Ending the session also clears the cached geometry, so returning to the screen or changing themes cannot restore a finished route. This display state is retained in memory, not persisted across process death. The animated traveler/progress panel belongs to A-to-B playback, not GPX import.
 
@@ -83,15 +85,22 @@ Select **Route**, tap the start and destination, choose a speed and start playba
 
 Road routing tries OpenRouteService when an `ORS_KEY` is configured, then the public OSRM driving service. If both requests fail, it falls back to a **straight line between A and B**, not a verified road route. Endpoint coordinates are sent to the routing provider. A-to-B playback uses its own route panel; the GPX-specific home-screen lock and completion UI described above do not apply to it.
 
+### Saved routes
+
+Open **Saved routes** in the drawer to import a GPX or GeoJSON file, or to save the currently planned A-to-B path. Tap a saved entry to play it with the regular GPX setup, export it as GPX, or delete it. Undo restores the most recent deletion while the library is open. The database upgrade preserves existing favorites.
+
+GeoJSON import supports line geometries (`LineString` and `MultiLineString`), including in features and feature collections. Routes preserve playback coordinates, elevation, and ordered named GPX stop waypoints on export, not timestamps or arbitrary file metadata. Multi-part routes play as one continuous path. Files can be saved and exported even when they exceed the 32,000-point GPX playback limit.
+
 ### Favorites and shortcuts
 
 Use the favorite button to save a selected point, and the drawer to select, import or export favorites as JSON. Android's file picker handles import/export.
 
-Add the GPS Setter tiles through Android's Quick Settings editor. The general tile toggles static spoofing; the three favorite tiles activate the corresponding entries in the saved-favorites list. Do not use these shortcuts or the joystick to change location while a route is running: they do not cancel playback, so a subsequent route update can replace their changes.
+Add the GPS Setter tiles through Android's Quick Settings editor. The general tile toggles static spoofing; the three favorite tiles activate corresponding entries in the saved-favorites list. If Android Location is off, an applicable tile opens the app to prompt instead of starting. Do not use these shortcuts or the joystick to change location while a route is running: they do not cancel playback, so a subsequent route update can replace their changes.
 
 ## How location spoofing works
 
 - **System Framework:** hooks Android's location service and, on Android 12+, provider delivery through `LocationProviderManager.onReportLocation`. A generator supplies fixes to GPS, network and fused providers so listeners can receive updates even without a fresh physical GPS fix. It uses the selected GPX interval during a session and approximately 1 Hz otherwise, avoiding duplicate generated bursts when real GPS reports are arriving. Raw GNSS measurement, navigation and batching listeners are also restricted while spoofing.
+- **Vector configuration sync:** the system hook can read a complete settings snapshot from the framework's remote file service when system-server preference pushes are unavailable. It reads the selected coordinate cadence from the same snapshot as the fix and retains the last complete snapshot during a partial write. Scoped apps still use pushed preferences.
 - **Scoped apps:** hooks `LocationManager.getLastKnownLocation` and framework listener/current-location transports. It leaves `Location` getters and copying alone. PendingIntent delivery and Play-services or SDK-owned paths outside those transports are not covered by these app-side hooks; use the System Framework path where needed.
 - **Emergency handling:** the Android 14+ system-provider path checks the platform's emergency helper and skips rewriting/generating fixes when it reports an emergency. This is not a guarantee for every Android version, ROM or location-delivery path; do not rely on a spoofing module for emergency-location safety.
 
