@@ -120,28 +120,6 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
         with(mMap){
 
 
-            // maplibre custom ui
-            // ponytail: keyless OpenFreeMap for every map type; satellite/terrain need a keyed provider (e.g. own Mapbox token)
-            val isNight = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-            val mapStyle = if (isNight) "dark" else "liberty"
-            setStyle("https://tiles.openfreemap.org/styles/$mapStyle") { style ->
-                if (ActivityCompat.checkSelfPermission(this@MapActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) { 
-                    val locationComponent = mMap.locationComponent
-                    locationComponent.activateLocationComponent(
-                        LocationComponentActivationOptions.builder(this@MapActivity, style)
-                        .useDefaultLocationEngine(true)
-                        .locationEngineRequest(locationRequest(RoutePlaybackService.gpxState.value?.updateIntervalMs ?: LocationUpdateInterval.DEFAULT_MS))
-                        .build()
-                    )
-                    locationComponent.isLocationComponentEnabled = true
-                    locationComponent.cameraMode = if (viewModel.mapCameraPosition != null) CameraMode.NONE else CameraMode.TRACKING
-                    locationComponent.renderMode = RenderMode.COMPASS
-                } else {
-                    ActivityCompat.requestPermissions(this@MapActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 99);
-                }
-                // Native annotations must be restored after the new theme's style is loaded.
-                restoreGpxOverlay()
-            }
             // TODO: fix bug with drawer
             uiSettings.setAllGesturesEnabled(true)
             uiSettings.setCompassEnabled(true)
@@ -157,18 +135,38 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
             val zoom = 12.0f
             lat = viewModel.getLat
             lon  = viewModel.getLng
-            mLatLng = LatLng(lat, lon)
-            mLatLng?.let {
-                if (!isGpxActive) updateMarker(it)
-                // TODO: MarkerOptions().position(it!!)
-                // .draggable(false).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED).visible(false)
-                val camera = viewModel.mapCameraPosition as? CameraPosition
-                if (camera != null) {
-                    mMap.moveCamera(CameraUpdateFactory.newCameraPosition(camera))
-                } else {
-                    mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(it, zoom.toDouble()))
-                }
+            val initialPosition = LatLng(lat, lon)
+            mLatLng = initialPosition
+            val camera = viewModel.mapCameraPosition as? CameraPosition
+            if (camera != null) {
+                mMap.moveCamera(CameraUpdateFactory.newCameraPosition(camera))
+            } else {
+                mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(initialPosition, zoom.toDouble()))
             }
+
+            // Set up the initial camera before a style callback can fit a pending route.
+            // ponytail: keyless OpenFreeMap for every map type; satellite/terrain need a keyed provider (e.g. own Mapbox token)
+            val isNight = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+            val mapStyle = if (isNight) "dark" else "liberty"
+            setStyle("https://tiles.openfreemap.org/styles/$mapStyle") { style ->
+                if (ActivityCompat.checkSelfPermission(this@MapActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                    val locationComponent = mMap.locationComponent
+                    locationComponent.activateLocationComponent(
+                        LocationComponentActivationOptions.builder(this@MapActivity, style)
+                        .useDefaultLocationEngine(true)
+                        .locationEngineRequest(locationRequest(RoutePlaybackService.gpxState.value?.updateIntervalMs ?: LocationUpdateInterval.DEFAULT_MS))
+                        .build()
+                    )
+                    locationComponent.isLocationComponentEnabled = true
+                    locationComponent.cameraMode = if (viewModel.mapCameraPosition != null) CameraMode.NONE else CameraMode.TRACKING
+                    locationComponent.renderMode = RenderMode.COMPASS
+                } else {
+                    ActivityCompat.requestPermissions(this@MapActivity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 99);
+                }
+                routeOverlay.onStyleLoaded()
+            }
+            if (!isGpxActive) updateMarker(initialPosition)
+
 
             addOnMapClickListener(this@MapActivity)
             if (viewModel.isStarted){
@@ -201,10 +199,25 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
     private var bMarker: Marker? = null
     private var travelerMarker: Marker? = null
 
-    override fun drawRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean) {
-        if (!::mMap.isInitialized || mMap.style?.isFullyLoaded != true) return
-        clearRoute()
-        if (points.size < 2) return
+    private val routeOverlay = object : MapRouteOverlay() {
+        override fun renderRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean) =
+            drawRouteAnnotations(points, fitCamera)
+
+        override fun clearAnnotations() = clearRouteAnnotations()
+
+        override fun renderTraveler(lat: Double, lng: Double) = renderTravelerMarker(lat, lng)
+
+        override fun restoreRoute() = restoreGpxOverlay()
+    }
+
+    override fun drawRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean) =
+        routeOverlay.drawRoute(points, fitCamera)
+
+    override fun clearRoute() = routeOverlay.clearRoute()
+
+    override fun setTraveler(lat: Double, lng: Double) = routeOverlay.setTraveler(lat, lng)
+
+    private fun drawRouteAnnotations(points: List<Pair<Double, Double>>, fitCamera: Boolean) {
         val lls = points.map { LatLng(it.first, it.second) }
         routeLine = mMap.addPolyline(PolylineOptions().addAll(lls).color(Accent.current().color).width(4f))
         val ic = IconFactory.getInstance(this)
@@ -216,14 +229,14 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
         }
     }
 
-    override fun clearRoute() {
+    private fun clearRouteAnnotations() {
         routeLine?.remove(); routeLine = null
         aMarker?.remove(); aMarker = null
         bMarker?.remove(); bMarker = null
         travelerMarker?.remove(); travelerMarker = null
     }
 
-    override fun setTraveler(lat: Double, lng: Double) {
+    private fun renderTravelerMarker(lat: Double, lng: Double) {
         val pos = LatLng(lat, lng)
         if (travelerMarker == null) {
             travelerMarker = mMap.addMarker(MarkerOptions().position(pos).icon(IconFactory.getInstance(this).fromBitmap(dotBitmap(Accent.current().color))))
@@ -274,4 +287,63 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
             showToast(getString(R.string.location_unset))
         }
     }
+}
+
+// Keep only the latest overlay state while the map and its style are loading.
+internal abstract class MapRouteOverlay {
+    private data class DrawRequest(val points: List<Pair<Double, Double>>, val fitCamera: Boolean)
+
+    private var styleReady = false
+    private var restoreOnLoad = true
+    private var pendingRoute: DrawRequest? = null
+    private var pendingTraveler: Pair<Double, Double>? = null
+
+    fun drawRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean) {
+        if (points.size < 2) {
+            clearRoute()
+        } else if (styleReady) {
+            replaceRoute(points, fitCamera)
+        } else {
+            pendingRoute = DrawRequest(points, fitCamera)
+            // Replacing a route also replaces its annotations, including the traveler.
+            pendingTraveler = null
+        }
+    }
+
+    fun clearRoute() {
+        if (styleReady) {
+            clearAnnotations()
+        } else {
+            pendingRoute = null
+            pendingTraveler = null
+            restoreOnLoad = false
+        }
+    }
+
+    fun setTraveler(lat: Double, lng: Double) {
+        if (styleReady) renderTraveler(lat, lng) else pendingTraveler = lat to lng
+    }
+
+    fun onStyleLoaded() {
+        if (styleReady) return
+        styleReady = true
+        val route = pendingRoute
+        val traveler = pendingTraveler
+        pendingRoute = null
+        pendingTraveler = null
+        // Theme restoration is only a fallback; it must not replace a new draw's camera fit.
+        if (route != null) replaceRoute(route.points, route.fitCamera)
+        else if (restoreOnLoad) restoreRoute()
+        traveler?.let { renderTraveler(it.first, it.second) }
+    }
+
+    private fun replaceRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean) {
+        clearAnnotations()
+        renderRoute(points, fitCamera)
+    }
+
+    protected abstract fun renderRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean)
+    protected abstract fun clearAnnotations()
+    protected abstract fun renderTraveler(lat: Double, lng: Double)
+    protected abstract fun restoreRoute()
 }
