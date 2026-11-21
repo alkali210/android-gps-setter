@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="location_off_title">Location is off</string>
+    <string name="location_off_message">Turn on Location in Settings to use your location, teleport, or play a route.</string>
+    <string name="turn_on_location">Turn on</string>
+</resources>

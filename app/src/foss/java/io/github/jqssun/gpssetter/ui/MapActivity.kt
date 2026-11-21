@@ -247,6 +247,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, MapLibreMap.OnMapClick
 
         binding.startButton.setOnClickListener {
             if (handleGpxPlaybackClick(paused = false)) return@setOnClickListener
+            if (!locationOnOrAsk()) return@setOnClickListener
             viewModel.update(true, lat, lon)
             mLatLng.let {
                 updateMarker(it!!)

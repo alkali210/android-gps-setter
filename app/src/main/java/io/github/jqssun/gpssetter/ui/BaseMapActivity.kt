@@ -4,13 +4,11 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.PendingIntent
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.location.Geocoder
 import android.location.Location
-import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -56,6 +54,7 @@ import io.github.jqssun.gpssetter.route.parseGpx
 import kotlin.math.roundToInt
 import io.github.jqssun.gpssetter.databinding.ActivityMapBinding
 import io.github.jqssun.gpssetter.ui.viewmodel.MainViewModel
+import io.github.jqssun.gpssetter.utils.EXTRA_ASK_LOCATION
 import io.github.jqssun.gpssetter.utils.JoystickService
 import io.github.jqssun.gpssetter.utils.NotificationsChannel
 import io.github.jqssun.gpssetter.utils.PrefManager
@@ -146,6 +145,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
                 interval.error = if (intervalMs == null || intervalMs !in LocationUpdateInterval.MIN_MS..LocationUpdateInterval.MAX_MS)
                     getString(R.string.route_update_interval_invalid, LocationUpdateInterval.MIN_MS, LocationUpdateInterval.MAX_MS) else null
                 if (speed.error != null || interval.error != null) return@setOnClickListener
+                if (!locationOnOrAsk()) return@setOnClickListener
                 binding.modeToggle.check(R.id.mode_static)
                 viewModel.gpxOverlay = route.map { it.lat to it.lng }
                 drawRoute(viewModel.gpxOverlay)
@@ -381,6 +381,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
 
     private fun startRoutePlayback() {
         val road = roadPoints ?: return
+        if (!locationOnOrAsk()) return
         RoutePlaybackService.start(this, road, speedKmh / 3.6f, loop = false)
         binding.travelDetails.text = "A  $aName\nB  $bName"
         showTravel()
@@ -448,6 +449,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
         setupButtons()
         setupDrawer()
         setupRouteMode()
+        if (savedInstanceState == null) askIfFromTile(intent)
         renderGpxPlayback(RoutePlaybackService.gpxState.value)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -794,7 +796,7 @@ abstract class BaseMapActivity: AppCompatActivity() {
     protected fun getLastLocation() {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         if (checkPermissions()) {
-            if (isLocationEnabled()) {
+            if (locationOnOrAsk()) {
                 fusedLocationClient.lastLocation.addOnCompleteListener(this) { task ->
                     val location: Location? = task.result
                     if (location == null) {
@@ -803,10 +805,6 @@ abstract class BaseMapActivity: AppCompatActivity() {
                         centerMapOnLocation(location.latitude, location.longitude)
                     }
                 }
-            } else {
-                showToast("Turn on location")
-                val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
-                startActivity(intent)
             }
         } else {
             requestPermissions()
@@ -835,11 +833,26 @@ abstract class BaseMapActivity: AppCompatActivity() {
         }
     }
 
-    private fun isLocationEnabled(): Boolean {
-        val locationManager: LocationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) || locationManager.isProviderEnabled(
-            LocationManager.NETWORK_PROVIDER
-        )
+    protected fun locationOnOrAsk(): Boolean {
+        if (isLocationOn()) return true
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.location_off_title)
+            .setMessage(R.string.location_off_message)
+            .setPositiveButton(R.string.turn_on_location) { _, _ ->
+                startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+        return false
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        askIfFromTile(intent)
+    }
+
+    private fun askIfFromTile(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_ASK_LOCATION, false) == true) locationOnOrAsk()
     }
 
     private fun checkPermissions(): Boolean {
