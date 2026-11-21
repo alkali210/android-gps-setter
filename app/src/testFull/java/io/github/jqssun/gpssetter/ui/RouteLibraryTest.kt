@@ -13,6 +13,8 @@ import androidx.appcompat.app.AlertDialog
 import com.google.android.material.navigation.NavigationView
 import io.github.jqssun.gpssetter.R
 import io.github.jqssun.gpssetter.route.RouteDocument
+import io.github.jqssun.gpssetter.route.MAX_ROUTE_FILE_BYTES
+import io.github.jqssun.gpssetter.route.MAX_ROUTE_FILE_MIB
 import io.github.jqssun.gpssetter.route.RoutePlaybackService
 import io.github.jqssun.gpssetter.route.RoutePoint
 import io.github.jqssun.gpssetter.route.RouteStop
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.first
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowDialog
+import org.robolectric.shadows.ShadowToast
 import java.io.ByteArrayOutputStream
 
 @RunWith(RobolectricTestRunner::class)
@@ -126,6 +129,26 @@ class RouteLibraryTest {
             assertEquals(500L, start.getLongExtra("update_interval_ms", 0))
             assertTrue(start.getBooleanExtra("gpx", false))
             Robolectric.buildService(RoutePlaybackService::class.java).create().destroy()
+        }
+    }
+
+    @Test fun rejectsAnOversizedDocumentWithoutSavingIt() {
+        val app = RuntimeEnvironment.getApplication()
+        val source = Uri.parse("content://documents/routes/large")
+        val document = ByteArray(MAX_ROUTE_FILE_BYTES + 1) { ' '.code.toByte() }
+        """{"type":"LineString","coordinates":[[1,2],[3,4]]}""".toByteArray().copyInto(document)
+        shadowOf(app.contentResolver).registerInputStream(source, document.inputStream())
+        Robolectric.buildActivity(MapActivity::class.java).setup().use { controller ->
+            val map = controller.get()
+            map.findViewById<NavigationView>(R.id.nav_view).menu.performIdentifierAction(R.id.saved_routes, 0)
+            map.supportFragmentManager.executePendingTransactions()
+            val library = map.supportFragmentManager.findFragmentByTag("route_library") as RouteLibraryDialog
+            library.requireDialog().findViewById<View>(R.id.import_route).performClick()
+            val picker = shadowOf(map).nextStartedActivityForResult
+            map.activityResultRegistry.dispatchResult(picker.requestCode, Activity.RESULT_OK, Intent().setData(source))
+            val error = map.getString(R.string.route_file_too_large, MAX_ROUTE_FILE_MIB)
+            await("file size error") { ShadowToast.getTextOfLatestToast() == error }
+            assertTrue(kotlinx.coroutines.runBlocking { library.routes.summaries().first().isEmpty() })
         }
     }
 

@@ -5,6 +5,7 @@ import org.xml.sax.InputSource
 import org.xml.sax.SAXException
 import org.xml.sax.helpers.DefaultHandler
 import java.io.StringReader
+import java.math.BigDecimal
 import javax.xml.parsers.SAXParserFactory
 
 data class RouteStop(val point: RoutePoint, val name: String?)
@@ -108,14 +109,38 @@ fun RouteDocument.toGpx(title: String): String = buildString {
 }
 
 private fun StringBuilder.pointElement(tag: String, p: RoutePoint): StringBuilder =
-    append('<').append(tag).append(" lat=\"").append(p.lat).append("\" lon=\"").append(p.lng)
-        .append("\"><ele>").append(p.altitude).append("</ele>")
+    append('<').append(tag).append(" lat=\"").appendDecimal(p.lat).append("\" lon=\"").appendDecimal(p.lng)
+        .append("\"><ele>").appendDecimal(p.altitude).append("</ele>")
+
+private fun StringBuilder.appendDecimal(value: Double): StringBuilder {
+    val text = value.toString()
+    return append(if ('E' in text) BigDecimal(text).toPlainString() else text)
+}
+
+// XML 1.0 permits supplementary characters, but not unpaired surrogates or most C0 controls.
+internal fun String.xmlSafeText(): String {
+    var safe: StringBuilder? = null
+    var index = 0
+    while (index < length) {
+        val cp = codePointAt(index)
+        if (cp == 9 || cp == 10 || cp == 13 || cp in 0x20..0xD7FF ||
+            cp in 0xE000..0xFFFD || cp in 0x10000..0x10FFFF) {
+            safe?.appendCodePoint(cp)
+        } else {
+            if (safe == null) safe = StringBuilder(length).append(this, 0, index)
+            safe.append('\uFFFD')
+        }
+        index += Character.charCount(cp)
+    }
+    return safe?.toString() ?: this
+}
 
 private fun StringBuilder.xmlText(text: String): StringBuilder = apply {
-    for (c in text) when (c) {
+    for (c in text.xmlSafeText()) when (c) {
         '&' -> append("&amp;")
         '<' -> append("&lt;")
         '>' -> append("&gt;")
+        '\r' -> append("&#13;")
         else -> append(c)
     }
 }

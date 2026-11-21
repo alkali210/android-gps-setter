@@ -63,6 +63,8 @@ The centering button only moves the camera. The location provider may itself rep
 
 Choose **Play route (GPX)** in the drawer, select a file and set **Speed (km/h)** and **Update interval (ms)**. The interval defaults to **1000 ms** and accepts **100–10000 ms** (for example, 200 ms requests five updates per second). It is selected for that GPX session, retained while paused and across theme changes, and reset to 1000 ms when playback finishes or stops. Static and A-to-B playback keep the default cadence.
 
+The GPX picker and Saved routes importer accept files up to **2 MiB**. Larger files are rejected before parsing; split them into smaller files before importing.
+
 The app uses this interval for coordinate writes and both map providers' location requests, and mirrors it to the system Hook for generated fixes and cache freshness. Actual callback delivery still depends on Android/provider throttling, real GPS reports and the receiving app's request; this is not a guarantee that every app receives exactly that many callbacks. Restart scoped apps and reboot after installing the updated Hook code; subsequent GPX interval changes do not require a reboot.
 
 The importer reads `trkpt`, `rtept` and `wpt` elements with optional elevation; at least two playback points are required. Waypoints marked as stops are metadata, not extra playback points. Playback uses the chosen speed with an initial acceleration ramp, **not the timestamps recorded in the GPX file**. Distance is integrated over elapsed time so changing the update interval does not change travel speed. Separate tracks and segments are joined into one sequence.
@@ -89,7 +91,7 @@ Road routing tries OpenRouteService when an `ORS_KEY` is configured, then the pu
 
 Open **Saved routes** in the drawer to import a GPX or GeoJSON file, or to save the currently planned A-to-B path. Tap a saved entry to play it with the regular GPX setup, export it as GPX, or delete it. Undo restores the most recent deletion while the library is open. The database upgrade preserves existing favorites.
 
-GeoJSON import supports line geometries (`LineString` and `MultiLineString`), including in features and feature collections. Routes preserve playback coordinates, elevation, and ordered named GPX stop waypoints on export, not timestamps or arbitrary file metadata. Multi-part routes play as one continuous path. Files can be saved and exported even when they exceed the 32,000-point GPX playback limit.
+GeoJSON import supports line geometries (`LineString` and `MultiLineString`), including in features and feature collections. GPX export preserves coordinates in plain decimal notation, elevation, and ordered named stop waypoints, not timestamps or arbitrary file metadata. XML-invalid characters in names and stop labels are replaced with `�`. Multi-part routes play as one continuous path. Files within the import limit can be saved and exported even when they exceed the 32,000-point GPX playback limit.
 
 ### Favorites and shortcuts
 
@@ -100,7 +102,7 @@ Add the GPS Setter tiles through Android's Quick Settings editor. The general ti
 ## How location spoofing works
 
 - **System Framework:** hooks Android's location service and, on Android 12+, provider delivery through `LocationProviderManager.onReportLocation`. A generator supplies fixes to GPS, network and fused providers so listeners can receive updates even without a fresh physical GPS fix. It uses the selected GPX interval during a session and approximately 1 Hz otherwise, avoiding duplicate generated bursts when real GPS reports are arriving. Raw GNSS measurement, navigation and batching listeners are also restricted while spoofing.
-- **Vector configuration sync:** the system hook can read a complete settings snapshot from the framework's remote file service when system-server preference pushes are unavailable. It reads the selected coordinate cadence from the same snapshot as the fix and retains the last complete snapshot during a partial write. Scoped apps still use pushed preferences.
+- **Vector configuration sync:** the system hook takes the newest complete settings snapshot from pushed preferences or the framework's remote file service. A partial file cannot overwrite a valid snapshot or prevent a newer pushed Stop from taking effect. The worker checks for control changes at least once per second under normal scheduling without increasing the configured fix-generation rate. Scoped apps still use pushed preferences.
 - **Scoped apps:** hooks `LocationManager.getLastKnownLocation` and framework listener/current-location transports. It leaves `Location` getters and copying alone. PendingIntent delivery and Play-services or SDK-owned paths outside those transports are not covered by these app-side hooks; use the System Framework path where needed.
 - **Emergency handling:** the Android 14+ system-provider path checks the platform's emergency helper and skips rewriting/generating fixes when it reports an emergency. This is not a guarantee for every Android version, ROM or location-delivery path; do not rely on a spoofing module for emergency-location safety.
 

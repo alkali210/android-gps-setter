@@ -1,5 +1,6 @@
 package io.github.jqssun.gpssetter.route
 
+import io.github.jqssun.gpssetter.room.SavedRoute
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -31,5 +32,39 @@ class RouteImportTest {
         assertEquals(route, importRoute(file))
         assertEquals(points, parseGpx(file))
         assertNull(importRoute("""<!DOCTYPE gpx SYSTEM "file:///not-a-route"><gpx/>"""))
+    }
+
+    @Test fun exportedGpxUsesDecimalLexemesAndPreservesPrecision() {
+        val points = listOf(RoutePoint(0.00012345678901234567, -0.00000042, 1.23456789e14),
+            RoutePoint(-0.00005, 0.00001, -0.00000987))
+        val route = RouteDocument("Decimals", points, listOf(RouteStop(points.first(), "Start")))
+        val gpx = route.toGpx("Decimals")
+        val values = Regex("""(?:lat|lon)="([^"]+)"|<ele>([^<]+)</ele>""").findAll(gpx).map {
+            it.groupValues[1].ifEmpty { it.groupValues[2] }
+        }.toList()
+        assertEquals(9, values.size)
+        assertTrue(values.all { it.matches(Regex("""[+-]?\d+(?:\.\d+)?""")) })
+        assertEquals(route, importRoute(gpx))
+    }
+
+    @Test fun savedGeoJsonNamesAndStopLabelsRemainValidGpxText() {
+        val doc = importRoute("""{"type":"Feature","properties":{"name":"A\u0000 & 港🚢"},
+            "geometry":{"type":"LineString","coordinates":[[1,2],[3,4]]}}""")!!
+        val label = "\u000B<stop>\uD800\uFFFE\r\n🚲"
+        val row = SavedRoute.from(doc.name!!, doc.copy(stops = listOf(RouteStop(doc.points.first(), label))))
+        assertEquals("A\uFFFD & 港🚢", row.name)
+        assertEquals(RouteDocument(row.name, doc.points,
+            listOf(RouteStop(doc.points.first(), "\uFFFD<stop>\uFFFD\uFFFD\r\n🚲"))), importRoute(row.gpx))
+    }
+
+    @Test fun pickerReadEnforcesTheByteLimitEvenWithoutProviderMetadata() {
+        val route = """{"type":"LineString","coordinates":[[1,2],[3,4]]}""".toByteArray()
+        val exact = ByteArray(MAX_ROUTE_FILE_BYTES + 128) { ' '.code.toByte() }
+        route.copyInto(exact)
+        assertNotNull(importRoute(exact.inputStream(0, MAX_ROUTE_FILE_BYTES).readRouteText()))
+
+        val tooLarge = exact.inputStream()
+        assertThrows(RouteFileTooLargeException::class.java) { tooLarge.readRouteText() }
+        assertEquals(127, tooLarge.available()) // no need to read beyond the first excess byte
     }
 }

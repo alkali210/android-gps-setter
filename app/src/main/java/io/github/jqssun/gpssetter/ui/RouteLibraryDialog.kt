@@ -25,9 +25,12 @@ import io.github.jqssun.gpssetter.databinding.DialogRouteLibraryBinding
 import io.github.jqssun.gpssetter.room.RouteSummary
 import io.github.jqssun.gpssetter.room.SavedRoute
 import io.github.jqssun.gpssetter.room.SavedRouteDao
+import io.github.jqssun.gpssetter.route.MAX_ROUTE_FILE_MIB
+import io.github.jqssun.gpssetter.route.RouteFileTooLargeException
 import io.github.jqssun.gpssetter.route.RouteDocument
 import io.github.jqssun.gpssetter.route.importRoute
 import io.github.jqssun.gpssetter.route.parseGpx
+import io.github.jqssun.gpssetter.route.readRouteText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -55,7 +58,7 @@ class RouteLibraryDialog : DialogFragment() {
         val fallback = getString(R.string.library_default_name)
         perform(R.string.library_import_failed) {
             val row = withContext(Dispatchers.IO) {
-                val text = resolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: throw IOException()
+                val text = resolver.openInputStream(uri)?.use { it.readRouteText() } ?: throw IOException()
                 val doc = importRoute(text) ?: throw IOException()
                 SavedRoute.from(doc.name ?: resolver.documentName(uri) ?: fallback, doc)
             }
@@ -182,6 +185,8 @@ class RouteLibraryDialog : DialogFragment() {
                 action()
             } catch (e: CancellationException) {
                 throw e
+            } catch (_: RouteFileTooLargeException) {
+                Toast.makeText(requireContext(), getString(R.string.route_file_too_large, MAX_ROUTE_FILE_MIB), Toast.LENGTH_LONG).show()
             } catch (_: Exception) {
                 message(error)
             }

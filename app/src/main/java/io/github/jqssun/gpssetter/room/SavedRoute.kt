@@ -9,6 +9,7 @@ import androidx.room.Transaction
 import io.github.jqssun.gpssetter.route.RouteDocument
 import io.github.jqssun.gpssetter.route.RouteMath
 import io.github.jqssun.gpssetter.route.toGpx
+import io.github.jqssun.gpssetter.route.xmlSafeText
 import kotlinx.coroutines.flow.Flow
 
 @Entity
@@ -19,9 +20,10 @@ data class SavedRoute(
     val meters: Double,
 ) {
     companion object {
-        fun from(name: String, document: RouteDocument) = SavedRoute(
-            name = name, gpx = document.toGpx(name), meters = RouteMath.pathLength(document.points)
-        )
+        fun from(name: String, document: RouteDocument): SavedRoute {
+            val safeName = name.xmlSafeText()
+            return SavedRoute(name = safeName, gpx = document.toGpx(safeName), meters = RouteMath.pathLength(document.points))
+        }
     }
 }
 

@@ -52,7 +52,10 @@ import io.github.jqssun.gpssetter.route.RoutePoint
 import io.github.jqssun.gpssetter.route.Routing
 import io.github.jqssun.gpssetter.route.RouteDocument
 import io.github.jqssun.gpssetter.route.RouteStop
+import io.github.jqssun.gpssetter.route.MAX_ROUTE_FILE_MIB
+import io.github.jqssun.gpssetter.route.RouteFileTooLargeException
 import io.github.jqssun.gpssetter.route.parseGpx
+import io.github.jqssun.gpssetter.route.readRouteText
 import kotlin.math.roundToInt
 import io.github.jqssun.gpssetter.databinding.ActivityMapBinding
 import io.github.jqssun.gpssetter.ui.viewmodel.MainViewModel
@@ -119,10 +122,16 @@ abstract class BaseMapActivity: AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             uri ?: return@registerForActivityResult
             lifecycleScope.launch {
-                val text = withContext(Dispatchers.IO) {
-                    contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                val route = try {
+                    withContext(Dispatchers.IO) {
+                        contentResolver.openInputStream(uri)?.use { parseGpx(it.readRouteText()) }.orEmpty()
+                    }
+                } catch (_: RouteFileTooLargeException) {
+                    showToast(getString(R.string.route_file_too_large, MAX_ROUTE_FILE_MIB))
+                    return@launch
+                } catch (_: IOException) {
+                    emptyList()
                 }
-                val route = text?.let { parseGpx(it) }.orEmpty()
                 if (route.size < 2) showToast(getString(R.string.route_empty)) else askSpeedAndPlay(route)
             }
         }

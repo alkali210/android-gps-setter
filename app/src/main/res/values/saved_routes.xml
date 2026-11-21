@@ -10,6 +10,7 @@
     <string name="library_delete">Delete route</string>
     <string name="library_undo">Undo delete: %1$s</string>
     <string name="library_import_failed">Could not import a route. Choose a GPX or GeoJSON file with at least two points.</string>
+    <string name="route_file_too_large">Choose a route file no larger than %1$d MiB.</string>
     <string name="library_unavailable">Could not open the saved route.</string>
     <string name="library_save_failed">Could not save the route.</string>
     <string name="library_exported">GPX file exported.</string>
