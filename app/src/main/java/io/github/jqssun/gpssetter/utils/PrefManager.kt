@@ -3,6 +3,7 @@ package io.github.jqssun.gpssetter.utils
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.MutableLiveData
 import io.github.jqssun.gpssetter.BuildConfig
@@ -15,6 +16,7 @@ import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.HOOKED_SYSTEM
 import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.LATITUDE_D
 import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.LONGITUDE_D
 import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.RANDOM_POSITION
+import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.REVISION
 import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.SPEED
 import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.START
 import io.github.jqssun.gpssetter.xposed.Xshare
@@ -53,8 +55,18 @@ object PrefManager   {
         fun nextRevision(local: SharedPreferences): Long? {
             if (revision == reservedThrough) {
                 // Reserve before publishing so a new process can never reuse a revision.
-                // A range avoids synchronous disk writes on each route tick.
-                val previous = local.getLong(RESERVED_REVISION, 0L)
+                // Floor against remote prefs and monotonic uptime so clearing app data or
+                // reinstalling without a reboot still advances past system_server's cache.
+                val localFloor = local.getLong(RESERVED_REVISION, 0L)
+                val remoteFloor = try {
+                    prefs.getLong(REVISION, 0L)
+                } catch (_: RuntimeException) {
+                    0L
+                }
+                val bootFloor = SystemClock.elapsedRealtime()
+                    .coerceIn(0L, Long.MAX_VALUE / REVISION_BATCH_SIZE - 2L) * REVISION_BATCH_SIZE
+                val previous = maxOf(localFloor, remoteFloor, bootFloor)
+                if (previous > Long.MAX_VALUE - REVISION_BATCH_SIZE) return null
                 val reserved = previous + REVISION_BATCH_SIZE
                 if (!local.edit().putLong(RESERVED_REVISION, reserved).commit()) return null
                 revision = previous

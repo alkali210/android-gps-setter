@@ -45,7 +45,7 @@ internal data class HookSettings(
         const val ACCURACY_SETTING = "accuracy_level"
         const val RANDOM_POSITION = "random_position"
         const val HOOKED_SYSTEM = "system_hooked"
-        private const val REVISION = "revision"
+        const val REVISION = "revision"
         private const val END = "end=1\n"
         private val trailer = "\n$END".toByteArray(Charsets.US_ASCII)
         const val BUFFER_SIZE = 1024

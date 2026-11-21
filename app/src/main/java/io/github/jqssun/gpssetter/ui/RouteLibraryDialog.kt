@@ -142,8 +142,10 @@ class RouteLibraryDialog : DialogFragment() {
                         val saved = routes.find(row.id) ?: throw IOException()
                         val points = withContext(Dispatchers.Default) { parseGpx(saved.gpx) }
                         if (points.size < 2) throw IOException()
-                        dismiss()
-                        map.playSavedRoute(points)
+                        if (!isAdded) return@perform
+                        val host = map
+                        dismissAllowingStateLoss()
+                        if (!host.isFinishing && !host.isDestroyed) host.playSavedRoute(points)
                     }
                     1 -> {
                         exportId = row.id
@@ -186,9 +188,9 @@ class RouteLibraryDialog : DialogFragment() {
             } catch (e: CancellationException) {
                 throw e
             } catch (_: RouteFileTooLargeException) {
-                Toast.makeText(requireContext(), getString(R.string.route_file_too_large, MAX_ROUTE_FILE_MIB), Toast.LENGTH_LONG).show()
+                if (isAdded) Toast.makeText(requireContext(), getString(R.string.route_file_too_large, MAX_ROUTE_FILE_MIB), Toast.LENGTH_LONG).show()
             } catch (_: Exception) {
-                message(error)
+                if (isAdded) message(error)
             }
         }
     }

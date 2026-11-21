@@ -152,6 +152,30 @@ class RouteLibraryTest {
         }
     }
 
+    @Test fun playingSavedRouteAfterStateSavedDoesNotFailWithUnavailableToast() {
+        val app = RuntimeEnvironment.getApplication()
+        shadowOf(app).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        val route = RouteDocument("Saved", listOf(RoutePoint(1.0, 2.0), RoutePoint(3.0, 4.0)))
+        Robolectric.buildActivity(MapActivity::class.java).setup().use { controller ->
+            val map = controller.get()
+            map.findViewById<NavigationView>(R.id.nav_view).menu.performIdentifierAction(R.id.saved_routes, 0)
+            map.supportFragmentManager.executePendingTransactions()
+            val library = map.supportFragmentManager.findFragmentByTag("route_library") as RouteLibraryDialog
+            kotlinx.coroutines.runBlocking {
+                library.routes.insert(io.github.jqssun.gpssetter.room.SavedRoute.from("Saved", route))
+            }
+            val list = library.requireDialog().findViewById<ListView>(R.id.routes)
+            await("saved row") { list.count == 1 }
+            list.performItemClick(null, 0, 0)
+            val actions = ShadowDialog.getLatestDialog() as AlertDialog
+            // Simulate the activity saving instance state before the Play coroutine resumes to dismiss.
+            controller.pause().saveInstanceState(android.os.Bundle()).stop()
+            actions.listView.performItemClick(null, 0, 0)
+            await("library dismissed") { library.dialog?.isShowing != true }
+            assertNotEquals(map.getString(R.string.library_unavailable), ShadowToast.getTextOfLatestToast())
+        }
+    }
+
     private fun await(description: String, ready: () -> Boolean) {
         val deadline = System.nanoTime() + 10_000_000_000L
         while (true) {

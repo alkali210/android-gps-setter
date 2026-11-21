@@ -19,12 +19,13 @@ data class RouteDocument(
 fun parseGpx(text: String): List<RoutePoint> = readGpx(text)?.points.orEmpty()
 
 internal fun readGpx(text: String): RouteDocument? {
+    val source = text.removePrefix("\uFEFF")
     // GPX never needs a DTD. Reject it before the XML reader can expand any entities.
-    if ("<!DOCTYPE" in text) return null
+    if ("<!DOCTYPE" in source) return null
     val handler = GpxReader()
     return try {
         SAXParserFactory.newInstance().apply { isNamespaceAware = true }.newSAXParser()
-            .parse(InputSource(StringReader(text)), handler)
+            .parse(InputSource(StringReader(source)), handler)
         handler.document()
     } catch (_: SAXException) {
         null

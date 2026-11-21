@@ -1,8 +1,10 @@
 package io.github.jqssun.gpssetter.xposed
 
 import android.content.Context
+import android.content.SharedPreferences
 import io.github.jqssun.gpssetter.utils.PrefManager
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,6 +14,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.FileNotFoundException
 import java.util.ArrayDeque
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
@@ -188,6 +191,42 @@ class XshareTest {
             assertEquals(moving.copy(isStarted = false, altitude = 0.0, speed = 0f, bearing = -1f,
                 locationUpdateIntervalMs = LocationUpdateInterval.DEFAULT_MS, revision = stopped.revision), stopped)
             assertEquals(moving, HookSettings.decode(file))
+        } finally {
+            PrefManager.onServiceDied()
+        }
+    }
+
+    @Test fun clearingLocalDataOrReinstallingWithoutRebootStillSupersedesCachedSystemRevision() {
+        val local = PrefManager::class.java.getDeclaredMethod("getPref").apply { isAccessible = true }
+            .invoke(PrefManager) as SharedPreferences
+        lateinit var file: ByteArray
+        PrefManager.bindRemote(prefs, { it.run() }) { file = it }
+        try {
+            PrefManager.updateMotion(4.0, 5.0, -80.0, 25f, 180f)
+            val system = Xshare(prefs) { file.inputStream() }
+            val moving = system.refresh(0)!!
+            assertTrue(moving.isStarted)
+
+            // Clear app-private storage while remote preferences survive.
+            PrefManager.onServiceDied()
+            local.edit().clear().commit()
+            PrefManager.bindRemote(prefs, { it.run() }) { file = it }
+            val afterClear = system.refresh(1000)!!
+            assertTrue(afterClear.revision > moving.revision)
+            assertFalse(afterClear.isStarted)
+
+            // Wipe both local and remote storage (reinstall without reboot) as uptime advances.
+            PrefManager.updateMotion(6.0, 7.0, 10.0, 10f, 45f)
+            val movingAgain = system.refresh(2000)!!
+            assertTrue(movingAgain.isStarted)
+            PrefManager.onServiceDied()
+            local.edit().clear().commit()
+            prefs.edit().clear().commit()
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(1, TimeUnit.SECONDS)
+            PrefManager.bindRemote(prefs, { it.run() }) { file = it }
+            val afterReinstall = system.refresh(3000)!!
+            assertTrue(afterReinstall.revision > movingAgain.revision)
+            assertFalse(afterReinstall.isStarted)
         } finally {
             PrefManager.onServiceDied()
         }

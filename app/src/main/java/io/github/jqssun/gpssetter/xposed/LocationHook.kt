@@ -54,7 +54,7 @@ object LocationHook {
         settings = if (system) Xshare(prefs) {
             ParcelFileDescriptor.AutoCloseInputStream(xposed.openRemoteFile(Xshare.FILE))
         } else Xshare(prefs)
-        rawSettings = settings.initialSettings ?: HookSettings()
+        rawSettings = (if (system) settings.refresh(SystemClock.elapsedRealtime()) else settings.initialSettings) ?: HookSettings()
         current = rawSettings
     }
 

@@ -31,4 +31,12 @@ class GpxParserTest {
     @Test fun emptyOnGarbage() {
         assertTrue(parseGpx("not xml at all").isEmpty())
     }
+
+    @Test fun parsesUtf8BomPrefixedGpx() {
+        val withProlog = "\uFEFF<?xml version=\"1.0\" encoding=\"UTF-8\"?><gpx><trk><trkseg>" +
+            "<trkpt lat=\"1.0\" lon=\"2.0\"/><trkpt lat=\"3.0\" lon=\"4.0\"/></trkseg></trk></gpx>"
+        val withoutProlog = "\uFEFF<gpx><rte><rtept lat=\"5.0\" lon=\"6.0\"/><rtept lat=\"7.0\" lon=\"8.0\"/></rte></gpx>"
+        assertEquals(listOf(RoutePoint(1.0, 2.0), RoutePoint(3.0, 4.0)), parseGpx(withProlog))
+        assertEquals(listOf(RoutePoint(5.0, 6.0), RoutePoint(7.0, 8.0)), parseGpx(withoutProlog))
+    }
 }
