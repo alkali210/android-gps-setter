@@ -109,12 +109,9 @@ fun RouteDocument.toGpx(title: String): String = buildString {
     append("</trkseg></trk></gpx>\n")
 }
 
-private fun StringBuilder.pointElement(tag: String, p: RoutePoint): StringBuilder {
-    // GPX 1.1 uses −180° to represent the antimeridian.
-    val longitude = if (p.lng == 180.0) -180.0 else p.lng
-    return append('<').append(tag).append(" lat=\"").appendDecimal(p.lat).append("\" lon=\"").appendDecimal(longitude)
+private fun StringBuilder.pointElement(tag: String, p: RoutePoint): StringBuilder =
+    append('<').append(tag).append(" lat=\"").appendDecimal(p.lat).append("\" lon=\"").appendDecimal(p.lng)
         .append("\"><ele>").appendDecimal(p.altitude).append("</ele>")
-}
 
 private fun StringBuilder.appendDecimal(value: Double): StringBuilder {
     val text = value.toString()

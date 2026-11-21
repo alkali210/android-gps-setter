@@ -16,7 +16,13 @@ internal data class HookSettings(
     val isHookedSystem: Boolean = true,
     val locationUpdateIntervalMs: Long = LocationUpdateInterval.DEFAULT_MS,
     val revision: Long = 0L,
+    val bootCount: Int = LEGACY_BOOT,
 ) {
+    fun isNewerThan(other: HookSettings): Boolean = other.isOlderThan(bootCount, revision)
+
+    private fun isOlderThan(boot: Int, version: Long): Boolean =
+        boot > bootCount || (boot == bootCount && version > revision)
+
     fun publish(prefs: SharedPreferences) {
         val editor = prefs.edit().putBoolean(START, isStarted)
             .putLong(LATITUDE_D, latitude.toRawBits()).putLong(LONGITUDE_D, longitude.toRawBits())
@@ -24,6 +30,7 @@ internal data class HookSettings(
             .putString(ACCURACY_SETTING, accuracy.toString()).putBoolean(RANDOM_POSITION, isRandomPosition)
             .putBoolean(HOOKED_SYSTEM, isHookedSystem).putLong(LocationUpdateInterval.KEY, locationUpdateIntervalMs)
         if (revision > 0L) editor.putLong(REVISION, revision) else editor.remove(REVISION)
+        if (bootCount != LEGACY_BOOT) editor.putInt(BOOT_COUNT, bootCount) else editor.remove(BOOT_COUNT)
         editor.apply()
     }
 
@@ -32,7 +39,8 @@ internal data class HookSettings(
             "$ALTITUDE=${altitude.toRawBits()}\n$SPEED=$speed\n$BEARING=$bearing\n$ACCURACY_SETTING=$accuracy\n" +
             "$RANDOM_POSITION=$isRandomPosition\n$HOOKED_SYSTEM=$isHookedSystem\n" +
             "${LocationUpdateInterval.KEY}=$locationUpdateIntervalMs\n" +
-            (if (revision > 0L) "$REVISION=$revision\n" else "") + END
+            (if (revision > 0L) "$REVISION=$revision\n" else "") +
+            (if (bootCount != LEGACY_BOOT) "$BOOT_COUNT=$bootCount\n" else "") + END
         ).toByteArray(Charsets.US_ASCII)
 
     companion object {
@@ -46,6 +54,8 @@ internal data class HookSettings(
         const val RANDOM_POSITION = "random_position"
         const val HOOKED_SYSTEM = "system_hooked"
         const val REVISION = "revision"
+        const val BOOT_COUNT = "boot_count"
+        private const val LEGACY_BOOT = -1
         private const val END = "end=1\n"
         private val trailer = "\n$END".toByteArray(Charsets.US_ASCII)
         const val BUFFER_SIZE = 1024
@@ -55,16 +65,23 @@ internal data class HookSettings(
             defaultLat: Double,
             defaultLng: Double,
             revision: Long,
-        ): HookSettings = fromUnversionedPreferences(prefs.all, defaultLat, defaultLng, revision)
+            bootCount: Int,
+        ): HookSettings = fromLocalSnapshot(prefs.all, defaultLat, defaultLng, revision, bootCount)
 
-        fun fromPushedPreferences(prefs: SharedPreferences, revisionAfter: Long): HookSettings? {
-            if (revisionAfter >= 0L && prefs.getLong(REVISION, 0L) <= revisionAfter) return null
+        fun fromPushedPreferences(prefs: SharedPreferences, after: HookSettings?): HookSettings? {
+            if (after != null && !after.isOlderThan(prefs.getInt(BOOT_COUNT, LEGACY_BOOT), prefs.getLong(REVISION, 0L))) {
+                return null
+            }
             // Take one snapshot; individual getters could straddle two route ticks.
             val p = prefs.all
             if (!p.containsKey(REVISION)) {
-                return if (revisionAfter < 0L) fromUnversionedPreferences(p, 45.0, 0.0, 0L) else null
+                return if (after == null && !p.containsKey(BOOT_COUNT)) fromLocalSnapshot(p, 45.0, 0.0) else null
             }
-            val revision = (p[REVISION] as? Long)?.takeIf { it > 0L && it > revisionAfter } ?: return null
+            val revision = (p[REVISION] as? Long)?.takeIf { it > 0L } ?: return null
+            val bootCount = if (p.containsKey(BOOT_COUNT)) {
+                (p[BOOT_COUNT] as? Int)?.takeIf { it >= 0 } ?: return null
+            } else LEGACY_BOOT
+            if (after != null && !after.isOlderThan(bootCount, revision)) return null
             // Versioned publications must supply the whole fix, not legacy defaults.
             return HookSettings(
                 p[START] as? Boolean ?: return null,
@@ -76,14 +93,16 @@ internal data class HookSettings(
                 p[RANDOM_POSITION] as? Boolean ?: return null, p[HOOKED_SYSTEM] as? Boolean ?: return null,
                 LocationUpdateInterval.normalize(p[LocationUpdateInterval.KEY] as? Long ?: return null),
                 revision,
+                bootCount,
             )
         }
 
-        private fun fromUnversionedPreferences(
+        private fun fromLocalSnapshot(
             p: Map<String, *>,
             defaultLat: Double,
             defaultLng: Double,
-            revision: Long,
+            revision: Long = 0L,
+            bootCount: Int = LEGACY_BOOT,
         ): HookSettings {
             fun coord(key: String, legacy: String, default: Double) =
                 (p[key] as? Long)?.let { Double.fromBits(it) } ?: (p[legacy] as? Float)?.toDouble() ?: default
@@ -96,6 +115,7 @@ internal data class HookSettings(
                 p[RANDOM_POSITION] as? Boolean ?: false, p[HOOKED_SYSTEM] as? Boolean ?: true,
                 LocationUpdateInterval.normalize(p[LocationUpdateInterval.KEY] as? Long ?: LocationUpdateInterval.DEFAULT_MS),
                 revision,
+                bootCount,
             )
         }
 
@@ -111,6 +131,10 @@ internal data class HookSettings(
             val revision = if (p.containsKey(REVISION)) {
                 p[REVISION]?.toLongOrNull()?.takeIf { it > 0L } ?: return null
             } else 0L
+            val bootCount = if (p.containsKey(BOOT_COUNT)) {
+                if (revision == 0L) return null
+                p[BOOT_COUNT]?.toIntOrNull()?.takeIf { it >= 0 } ?: return null
+            } else LEGACY_BOOT
             return HookSettings(
                 p[START]?.toBooleanStrictOrNull() ?: return null,
                 Double.fromBits(p[LATITUDE_D]?.toLongOrNull() ?: return null),
@@ -122,6 +146,7 @@ internal data class HookSettings(
                 p[HOOKED_SYSTEM]?.toBooleanStrictOrNull() ?: return null,
                 LocationUpdateInterval.normalize(p[LocationUpdateInterval.KEY]?.toLongOrNull() ?: return null),
                 revision,
+                bootCount,
             )
         }
     }
@@ -137,11 +162,11 @@ internal class Xshare(private val prefs: SharedPreferences, open: (() -> InputSt
     }
 
     private val file = open?.let(::RemoteFile)
-    private var latest = readPushed(-1L)
+    private var latest = readPushed(null)
     val initialSettings: HookSettings? get() = latest
 
-    private fun readPushed(revisionAfter: Long): HookSettings? = try {
-        HookSettings.fromPushedPreferences(prefs, revisionAfter)
+    private fun readPushed(after: HookSettings?): HookSettings? = try {
+        HookSettings.fromPushedPreferences(prefs, after)
     } catch (_: RuntimeException) {
         // A temporarily unavailable preference service must not hide a complete file.
         null
@@ -185,12 +210,12 @@ internal class Xshare(private val prefs: SharedPreferences, open: (() -> InputSt
         val previous = latest
         val pulled = file?.read()
         // Preserve file priority for two legacy transports. A versioned snapshot can only
-        // be superseded by a complete snapshot with a strictly larger revision.
+        // be superseded by a complete snapshot from a newer boot or with a later revision.
         val fallback = if (pulled != null &&
-            (previous == null || previous.revision == 0L || pulled.revision > previous.revision)
+            (previous == null || previous.revision == 0L || pulled.isNewerThan(previous))
         ) pulled else previous
-        val revisionAfter = fallback?.revision?.takeIf { it > 0L || pulled != null } ?: -1L
-        val current = readPushed(revisionAfter) ?: fallback ?: return null
+        val after = fallback?.takeIf { it.revision > 0L || pulled != null }
+        val current = readPushed(after) ?: fallback ?: return null
         latest = current
         nextReadMs = nowMs + minOf(current.locationUpdateIntervalMs, limit)
         return current

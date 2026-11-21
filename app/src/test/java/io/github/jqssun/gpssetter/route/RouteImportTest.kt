@@ -47,17 +47,15 @@ class RouteImportTest {
         assertEquals(route, importRoute(gpx))
     }
 
-    @Test fun exportedTrackPointsAndStopsUseValidGpxAntimeridianLongitude() {
-        val doc = importRoute("""{"type":"LineString","coordinates":[[180,2],[179.999999,4]]}""")!!
-        val stop = RouteStop(doc.points.first(), "East")
-        val gpx = doc.copy(stops = listOf(stop)).toGpx("Antimeridian")
+    @Test fun savedRouteKeepsPositiveAntimeridianLongitudeDuringPlayback() {
+        val doc = importRoute("""{"type":"LineString","coordinates":[[180,2],[179.99,2]]}""")!!
+        val route = doc.copy(stops = listOf(RouteStop(doc.points.first(), "East")))
+        val saved = SavedRoute.from("Antimeridian", route)
 
-        val longitudes = Regex("""lon="([^"]+)"""").findAll(gpx).map { it.groupValues[1] }.toList()
-        assertEquals(listOf("-180.0", "-180.0", "179.999999"), longitudes)
-        val result = importRoute(gpx)!!
-        val antimeridian = stop.point.copy(lng = -180.0)
-        assertEquals(listOf(antimeridian, doc.points.last()), result.points)
-        assertEquals(listOf(stop.copy(point = antimeridian)), result.stops)
+        assertEquals(route.copy(name = saved.name), importRoute(saved.gpx))
+        val points = parseGpx(saved.gpx)
+        val halfway = RouteMath.pointAtDistance(points, RouteMath.pathLength(points) / 2)!!
+        assertEquals(179.995, halfway.lng, 1e-8)
     }
 
     @Test fun savedGeoJsonNamesAndStopLabelsRemainValidGpxText() {

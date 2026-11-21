@@ -2,6 +2,7 @@ package io.github.jqssun.gpssetter.xposed
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.provider.Settings
 import io.github.jqssun.gpssetter.utils.PrefManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -159,7 +160,8 @@ class XshareTest {
             val decoded = HookSettings.decode(bytes)!!
             assertTrue(decoded.revision > firstMotion.revision)
             val expected = HookSettings(isStarted = true, latitude = 4.0, longitude = 5.0,
-                altitude = -80.0, speed = 25f, bearing = 180f, locationUpdateIntervalMs = 200, revision = decoded.revision)
+                altitude = -80.0, speed = 25f, bearing = 180f, locationUpdateIntervalMs = 200,
+                revision = decoded.revision, bootCount = decoded.bootCount)
             assertEquals(expected, HookSettings.decode(bytes))
             assertEquals(expected, Xshare(prefs).refresh(0))
             assertEquals(3, writes)
@@ -183,7 +185,7 @@ class XshareTest {
             PrefManager.updateMotion(4.0, 5.0, -80.0, 25f, 180f)
             val moving = HookSettings.decode(file)!!
             PrefManager.onServiceDied()
-            // A new publisher reserves its own range from the persisted high-water mark.
+            // Rebinding must not reuse a revision when the clock has not advanced.
             PrefManager.bindRemote(prefs, { it.run() }) { throw FileNotFoundException() }
             PrefManager.update(false, 4.0, 5.0)
             val stopped = Xshare(prefs) { file.inputStream() }.refresh(0)!!
@@ -227,6 +229,37 @@ class XshareTest {
             val afterReinstall = system.refresh(3000)!!
             assertTrue(afterReinstall.revision > movingAgain.revision)
             assertFalse(afterReinstall.isStarted)
+        } finally {
+            PrefManager.onServiceDied()
+        }
+    }
+
+    @Test fun stopAfterRebootAndReinstallWinsEvenWhenTheCachedRevisionIsNumericallyLarger() {
+        val app = RuntimeEnvironment.getApplication()
+        val olderBoot = route.copy(bootCount = 6, revision = TimeUnit.HOURS.toNanos(48))
+        Settings.Global.putInt(app.contentResolver, Settings.Global.BOOT_COUNT, 7)
+        olderBoot.publish(prefs)
+        var file: ByteArray? = olderBoot.encode()
+        val system = Xshare(prefs) { file?.inputStream() ?: throw FileNotFoundException() }
+        assertEquals(olderBoot, system.refresh(0))
+
+        // The hook remains alive after reinstall; the new publisher cannot read the old
+        // revision from either transport. A failed file write still leaves the pushed Stop usable.
+        prefs.edit().clear().commit()
+        file = null
+        PrefManager.bindRemote(prefs, { it.run() }) { throw FileNotFoundException() }
+        try {
+            PrefManager.update(false, 12.0, 34.0)
+            val stopped = system.refresh(100)!!
+            assertFalse(stopped.isStarted)
+            assertEquals(7, stopped.bootCount)
+            assertTrue(stopped.revision < olderBoot.revision)
+            assertEquals(12.0, stopped.latitude, 0.0)
+            assertEquals(34.0, stopped.longitude, 0.0)
+
+            olderBoot.publish(prefs)
+            file = olderBoot.copy(revision = olderBoot.revision + 1).encode()
+            assertEquals(stopped, system.refresh(1100))
         } finally {
             PrefManager.onServiceDied()
         }

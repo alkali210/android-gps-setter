@@ -93,6 +93,8 @@ Open **Saved routes** in the drawer to import a GPX or GeoJSON file, or to save 
 
 GeoJSON import supports line geometries (`LineString` and `MultiLineString`), including in features and feature collections. GPX export preserves coordinates in plain decimal notation, elevation, and ordered named stop waypoints, not timestamps or arbitrary file metadata. XML-invalid characters in names and stop labels are replaced with `�`. Multi-part routes play as one continuous path. Files within the import limit can be saved and exported even when they exceed the 32,000-point GPX playback limit.
 
+GPS Setter preserves `+180°` longitude exactly so saving and replaying a route does not change its geometry. Such exports can be read by GPS Setter, but strict GPX 1.1 validators may reject them.
+
 ### Favorites and shortcuts
 
 Use the favorite button to save a selected point, and the drawer to select, import or export favorites as JSON. Android's file picker handles import/export.
@@ -102,7 +104,7 @@ Add the GPS Setter tiles through Android's Quick Settings editor. The general ti
 ## How location spoofing works
 
 - **System Framework:** hooks Android's location service and, on Android 12+, provider delivery through `LocationProviderManager.onReportLocation`. A generator supplies fixes to GPS, network and fused providers so listeners can receive updates even without a fresh physical GPS fix. It uses the selected GPX interval during a session and approximately 1 Hz otherwise, avoiding duplicate generated bursts when real GPS reports are arriving. Raw GNSS measurement, navigation and batching listeners are also restricted while spoofing.
-- **Vector configuration sync:** the system hook takes the newest complete settings snapshot from pushed preferences or the framework's remote file service. A partial file cannot overwrite a valid snapshot or prevent a newer pushed Stop from taking effect. The worker checks for control changes at least once per second under normal scheduling without increasing the configured fix-generation rate. Scoped apps still use pushed preferences.
+- **Vector configuration sync:** the system hook takes the newest complete settings snapshot from pushed preferences or the framework's remote file service, comparing Android boot count before monotonic time within a boot. A partial file or a numerically higher revision from an earlier boot cannot prevent a newer pushed Stop from taking effect. The worker checks for control changes at least once per second under normal scheduling without increasing the configured fix-generation rate. Scoped apps still use pushed preferences.
 - **Scoped apps:** hooks `LocationManager.getLastKnownLocation` and framework listener/current-location transports. It leaves `Location` getters and copying alone. PendingIntent delivery and Play-services or SDK-owned paths outside those transports are not covered by these app-side hooks; use the System Framework path where needed.
 - **Emergency handling:** the Android 14+ system-provider path checks the platform's emergency helper and skips rewriting/generating fixes when it reports an emergency. This is not a guarantee for every Android version, ROM or location-delivery path; do not rely on a spoofing module for emergency-location safety.
 

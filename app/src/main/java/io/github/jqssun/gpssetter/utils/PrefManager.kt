@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.provider.Settings
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.MutableLiveData
 import io.github.jqssun.gpssetter.BuildConfig
@@ -16,7 +17,6 @@ import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.HOOKED_SYSTEM
 import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.LATITUDE_D
 import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.LONGITUDE_D
 import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.RANDOM_POSITION
-import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.REVISION
 import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.SPEED
 import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.START
 import io.github.jqssun.gpssetter.xposed.Xshare
@@ -40,8 +40,6 @@ object PrefManager   {
     private const val ENABLE_JOYSTICK = "joystick_enabled"
     private const val KEEP_SCREEN_ON_DURING_ROUTE = "keep_screen_on_during_route"
     private const val ACCENT = "accent_color"
-    private const val RESERVED_REVISION = "hook_reserved_revision"
-    private const val REVISION_BATCH_SIZE = 65_536L
 
 
     private val pref: SharedPreferences by lazy {
@@ -49,34 +47,15 @@ object PrefManager   {
     }
 
     private class Remote(val prefs: SharedPreferences, val executor: Executor, val writeFile: (ByteArray) -> Unit) {
-        private var revision = 0L
-        private var reservedThrough = 0L
-
-        fun nextRevision(local: SharedPreferences): Long? {
-            if (revision == reservedThrough) {
-                // Reserve before publishing so a new process can never reuse a revision.
-                // Floor against remote prefs and monotonic uptime so clearing app data or
-                // reinstalling without a reboot still advances past system_server's cache.
-                val localFloor = local.getLong(RESERVED_REVISION, 0L)
-                val remoteFloor = try {
-                    prefs.getLong(REVISION, 0L)
-                } catch (_: RuntimeException) {
-                    0L
-                }
-                val bootFloor = SystemClock.elapsedRealtime()
-                    .coerceIn(0L, Long.MAX_VALUE / REVISION_BATCH_SIZE - 2L) * REVISION_BATCH_SIZE
-                val previous = maxOf(localFloor, remoteFloor, bootFloor)
-                if (previous > Long.MAX_VALUE - REVISION_BATCH_SIZE) return null
-                val reserved = previous + REVISION_BATCH_SIZE
-                if (!local.edit().putLong(RESERVED_REVISION, reserved).commit()) return null
-                revision = previous
-                reservedThrough = reserved
-            }
-            return ++revision
+        val bootCount by lazy(LazyThreadSafetyMode.NONE) {
+            Settings.Global.getInt(gsApp.contentResolver, Settings.Global.BOOT_COUNT, 0)
         }
     }
     private val writer = Executors.newSingleThreadExecutor()
     private val queued = AtomicBoolean()
+    // Accessed only by the serialized publisher. Keep strictly increasing values even if
+    // the clock returns the same nanosecond on two consecutive publications.
+    private var lastRevision = 0L
     @Volatile private var remote: Remote? = null
     val moduleActive = MutableLiveData<Boolean>()
 
@@ -116,12 +95,9 @@ object PrefManager   {
             // one local edit, and recheck the binding in case the service died or reconnected.
             queued.set(false)
             val target = remote ?: return@execute
-            val revision = target.nextRevision(pref)
-            if (revision == null) {
-                Timber.e("Couldn't reserve a hook settings revision")
-                return@execute
-            }
-            val snapshot = HookSettings.fromLocalPreferences(pref, DEF_LAT, DEF_LNG, revision)
+            val bootCount = target.bootCount
+            lastRevision = maxOf(SystemClock.elapsedRealtimeNanos(), lastRevision + 1)
+            val snapshot = HookSettings.fromLocalPreferences(pref, DEF_LAT, DEF_LNG, lastRevision, bootCount)
             try {
                 snapshot.publish(target.prefs)
             } catch (e: RuntimeException) {
