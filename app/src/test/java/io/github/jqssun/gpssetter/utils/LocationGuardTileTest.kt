@@ -8,7 +8,9 @@ import android.service.quicksettings.TileService
 import io.github.jqssun.gpssetter.room.Favorite
 import io.github.jqssun.gpssetter.ui.MapActivity
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -25,6 +27,10 @@ import org.robolectric.shadows.ShadowTileService
 @Config(sdk = [28])
 class LocationGuardTileTest {
     private val app get() = RuntimeEnvironment.getApplication()
+
+    @Before @After fun resetSpoof() {
+        PrefManager.update(false, 12.0, 34.0)
+    }
 
     private fun setLocationOn(enabled: Boolean) =
         shadowOf(app.getSystemService(LocationManager::class.java)!!).setLocationEnabled(enabled)

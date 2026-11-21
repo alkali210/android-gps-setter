@@ -11,6 +11,7 @@ import io.github.jqssun.gpssetter.route.RoutePoint
 import io.github.jqssun.gpssetter.utils.EXTRA_ASK_LOCATION
 import io.github.jqssun.gpssetter.utils.PrefManager
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -24,6 +25,10 @@ import org.robolectric.shadows.ShadowDialog
 @Config(sdk = [28])
 class LocationGuardTest {
     private val app get() = RuntimeEnvironment.getApplication()
+
+    @Before fun startWithSpoofOff() {
+        PrefManager.update(false, 12.0, 34.0)
+    }
 
     private fun setLocationOn(enabled: Boolean) =
         shadowOf(app.getSystemService(LocationManager::class.java)!!).setLocationEnabled(enabled)
