@@ -2,60 +2,75 @@ package io.github.jqssun.gpssetter.utils
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.ParcelFileDescriptor
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.MutableLiveData
 import io.github.jqssun.gpssetter.BuildConfig
 import io.github.jqssun.gpssetter.gsApp
+import io.github.jqssun.gpssetter.xposed.HookSettings
+import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.ACCURACY_SETTING
+import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.ALTITUDE
+import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.BEARING
+import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.HOOKED_SYSTEM
+import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.LATITUDE_D
+import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.LONGITUDE_D
+import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.RANDOM_POSITION
+import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.SPEED
+import io.github.jqssun.gpssetter.xposed.HookSettings.Companion.START
 import io.github.jqssun.gpssetter.xposed.Xshare
 import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
 import io.github.libxposed.service.XposedService
 import timber.log.Timber
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 
 object PrefManager   {
 
-    private const val START = "start"
     private const val LATITUDE = "latitude"          // legacy Float; read only to migrate old installs
     private const val LONGITUDE = "longitude"
-    private const val LATITUDE_D = "latitude_d"       // Double bits (Long); Float lost ~1 m of precision
-    private const val LONGITUDE_D = "longitude_d"
     private const val DEF_LAT = 40.7128
     private const val DEF_LNG = -74.0060
-    private const val HOOKED_SYSTEM = "system_hooked"
-    private const val RANDOM_POSITION = "random_position"
-    private const val ACCURACY_SETTING = "accuracy_level"
     private const val MAP_TYPE = "map_type"
     private const val DARK_THEME = "dark_theme"
     private const val DISABLE_UPDATE = "update_disabled"
     private const val ENABLE_JOYSTICK = "joystick_enabled"
     private const val KEEP_SCREEN_ON_DURING_ROUTE = "keep_screen_on_during_route"
     private const val ACCENT = "accent_color"
-    // motion, set during route playback; static spoofing leaves these at the defaults below
-    private const val ALTITUDE = "altitude_d" // Double bits
-    private const val SPEED = "speed"         // m/s
-    private const val BEARING = "bearing"     // degrees, -1 = unset (use the real fix's bearing)
 
 
     private val pref: SharedPreferences by lazy {
         gsApp.getSharedPreferences("${BuildConfig.APPLICATION_ID}_prefs", Context.MODE_PRIVATE)
     }
 
-    // the hook can't read app-private files, so the settings it needs are mirrored into
-    // LSPosed's remote preferences (libxposed service) whenever they change
-    @Volatile private var remote: SharedPreferences? = null
+    private class Remote(val prefs: SharedPreferences, val executor: Executor, val writeFile: (ByteArray) -> Unit)
+    private val writer = Executors.newSingleThreadExecutor()
+    private val queued = AtomicBoolean()
+    @Volatile private var remote: Remote? = null
     val moduleActive = MutableLiveData<Boolean>()
-    private val mirror = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> syncRemote() }
 
     fun onServiceBind(service: XposedService) {
-        remote = try {
+        val prefs = try {
             service.getRemotePreferences(Xshare.GROUP)
         } catch (e: RuntimeException) {
             Timber.e(e, "Remote preferences unavailable")
             return
         }
-        pref.registerOnSharedPreferenceChangeListener(mirror)
-        syncRemote()
+        bindRemote(prefs, writer) { bytes ->
+            // API 102 returns a writable descriptor, not a truncating stream or an atomic
+            // rename operation. Serialize writers and publish the end marker in the same write.
+            ParcelFileDescriptor.AutoCloseOutputStream(service.openRemoteFile(Xshare.FILE)).use {
+                it.channel.truncate(0)
+                it.write(bytes)
+            }
+        }
         moduleActive.postValue(true)
+    }
+
+    internal fun bindRemote(prefs: SharedPreferences, executor: Executor, writeFile: (ByteArray) -> Unit) {
+        remote = Remote(prefs, executor, writeFile)
+        syncRemote()
     }
 
     fun onServiceDied() {
@@ -64,19 +79,27 @@ object PrefManager   {
     }
 
     private fun syncRemote() {
-        val remote = remote ?: return
-        remote.edit()
-            .putBoolean(START, isStarted)
-            .putLong(LATITUDE_D, getLat.toRawBits())
-            .putLong(LONGITUDE_D, getLng.toRawBits())
-            .putBoolean(HOOKED_SYSTEM, isSystemHooked)
-            .putBoolean(RANDOM_POSITION, isRandomPosition)
-            .putString(ACCURACY_SETTING, accuracy)
-            .putLong(ALTITUDE, altitude.toRawBits())
-            .putFloat(SPEED, speed)
-            .putFloat(BEARING, bearing)
-            .putLong(LocationUpdateInterval.KEY, locationUpdateIntervalMs)
-            .apply()
+        val executor = remote?.executor ?: return
+        if (!queued.compareAndSet(false, true)) return
+        executor.execute {
+            // At most one pending sync behind the running one. Capture both transports from
+            // one local edit, and recheck the binding in case the service died or reconnected.
+            queued.set(false)
+            val target = remote ?: return@execute
+            val snapshot = HookSettings.fromPreferences(pref, DEF_LAT, DEF_LNG)
+            snapshot.publish(target.prefs)
+            try {
+                target.writeFile(snapshot.encode())
+            } catch (e: Exception) {
+                Timber.e(e, "Couldn't write ${Xshare.FILE}")
+            }
+        }
+    }
+
+    // Publish once per transaction, not once per changed key, and ignore UI-only edits.
+    private fun SharedPreferences.Editor.applyHookSettings() {
+        apply()
+        syncRemote()
     }
 
     val altitude: Double
@@ -86,9 +109,9 @@ object PrefManager   {
 
     var locationUpdateIntervalMs: Long
         get() = LocationUpdateInterval.normalize(pref.getLong(LocationUpdateInterval.KEY, LocationUpdateInterval.DEFAULT_MS))
-        set(value) { pref.edit().putLong(LocationUpdateInterval.KEY, LocationUpdateInterval.normalize(value)).apply() }
+        set(value) { pref.edit().putLong(LocationUpdateInterval.KEY, LocationUpdateInterval.normalize(value)).applyHookSettings() }
 
-    // route playback: move to a point with motion. start=true; mirror listener syncs to the hook.
+    // Route playback moves the point, motion and active flag together.
     fun updateMotion(la: Double, ln: Double, altitude: Double, speed: Float, bearing: Float) {
         pref.edit()
             .putLong(LATITUDE_D, la.toRawBits())
@@ -97,7 +120,7 @@ object PrefManager   {
             .putLong(ALTITUDE, altitude.toRawBits())
             .putFloat(SPEED, speed)
             .putFloat(BEARING, bearing)
-            .apply()
+            .applyHookSettings()
     }
 
 
@@ -119,15 +142,15 @@ object PrefManager   {
 
     var isSystemHooked : Boolean
         get() = pref.getBoolean(HOOKED_SYSTEM, true) // must match Xshare.isHookedSystem default
-        set(value) { pref.edit().putBoolean(HOOKED_SYSTEM,value).apply() }
+        set(value) { pref.edit().putBoolean(HOOKED_SYSTEM,value).applyHookSettings() }
 
     var isRandomPosition :Boolean
         get() = pref.getBoolean(RANDOM_POSITION, false)
-        set(value) { pref.edit().putBoolean(RANDOM_POSITION, value).apply() }
+        set(value) { pref.edit().putBoolean(RANDOM_POSITION, value).applyHookSettings() }
 
     var accuracy : String?
         get() = pref.getString(ACCURACY_SETTING,"10")
-        set(value) { pref.edit().putString(ACCURACY_SETTING,value).apply()}
+        set(value) { pref.edit().putString(ACCURACY_SETTING,value).applyHookSettings() }
 
     var mapType : Int
         get() = pref.getInt(MAP_TYPE,1)
@@ -163,7 +186,7 @@ object PrefManager   {
             .putFloat(SPEED, 0f)
             .putFloat(BEARING, -1f)
             .putLong(LocationUpdateInterval.KEY, LocationUpdateInterval.DEFAULT_MS)
-            .apply()
+            .applyHookSettings()
     }
 
 

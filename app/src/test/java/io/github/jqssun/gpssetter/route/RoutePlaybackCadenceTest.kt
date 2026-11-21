@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.os.Looper
 import io.github.jqssun.gpssetter.utils.PrefManager
 import io.github.jqssun.gpssetter.xposed.LocationUpdateInterval
+import io.github.jqssun.gpssetter.xposed.HookSettings
 import io.github.jqssun.gpssetter.xposed.Xshare
 import org.junit.Assert.*
 import org.junit.Test
@@ -49,7 +50,7 @@ class RoutePlaybackCadenceTest {
                 assertEquals(before, fix())
                 advance(1)
                 assertEquals(10.0 * intervalMs / 1000.0, RouteMath.pathLength(listOf(before, fix())), 0.01)
-                assertEquals(PrefManager.getLng, remote.hook.getLng, 0.0)
+                assertEquals(PrefManager.getLng, remote.hook.longitude, 0.0)
                 assertInterval()
             }
 
@@ -174,27 +175,22 @@ class RoutePlaybackCadenceTest {
 
     private val longRoute = listOf(RoutePoint(0.0, 0.0, 100.0), RoutePoint(0.0, 1.0, 200.0))
 
-    // Substitute only the LSPosed transport endpoint, not the mirror or hook reader.
-    // Both preference stores, the production change listener/syncRemote and Xshare are real.
+    // Inspect both transports after a route edit. Fresh readers inspect the current publication
+    // independently of the poll deadline, which is exercised by XshareTest.
     private class RemotePreferenceEndpoint(context: Context) : AutoCloseable {
         val preferences: SharedPreferences = context.getSharedPreferences("cadence_remote", Context.MODE_PRIVATE)
-        val hook = Xshare(preferences)
-        private val remoteField = PrefManager::class.java.getDeclaredField("remote").apply { isAccessible = true }
-        private val previousRemote = remoteField.get(PrefManager)
-        private val local = PrefManager::class.java.getDeclaredMethod("getPref").apply { isAccessible = true }
-            .invoke(PrefManager) as SharedPreferences
-        private val listener = PrefManager::class.java.getDeclaredField("mirror").apply { isAccessible = true }
-            .get(PrefManager) as SharedPreferences.OnSharedPreferenceChangeListener
+        private lateinit var file: ByteArray
+        val hook get() = Xshare(preferences).refresh(0)!!.also { pushed ->
+            assertEquals(pushed, HookSettings.decode(file))
+        }
 
         init {
             preferences.edit().clear().commit()
-            remoteField.set(PrefManager, preferences)
-            local.registerOnSharedPreferenceChangeListener(listener)
+            PrefManager.bindRemote(preferences, { it.run() }) { file = it }
         }
 
         override fun close() {
-            local.unregisterOnSharedPreferenceChangeListener(listener)
-            remoteField.set(PrefManager, previousRemote)
+            PrefManager.onServiceDied()
         }
     }
 }
