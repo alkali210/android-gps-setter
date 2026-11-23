@@ -11,6 +11,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -143,23 +144,18 @@ class MainViewModel @Inject constructor(
 
     private val downloadStateReceiver = object: BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent?) {
-            viewModelScope.launch {
-                var success = false
-                val query = DownloadManager.Query().apply {
-                    setFilterById(requestId ?: return@apply)
-                }
-                val cursor = downloadManager.query(query)
-                if (cursor.moveToFirst()) {
-                    val columnIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-                    if (cursor.getInt(columnIndex) == DownloadManager.STATUS_SUCCESSFUL) {
-                        success = true
+            val id = requestId ?: return
+            if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE ||
+                intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) != id) return
+            val file = downloadFile ?: return
+            downloadManager.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
+                if (!cursor.moveToFirst()) return
+                when (cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))) {
+                    DownloadManager.STATUS_SUCCESSFUL -> {
+                        val uri = FileProvider.getUriForFile(context, BuildConfig.APPLICATION_ID + ".provider", file)
+                        _downloadState.value = State.Done(uri)
                     }
-                }
-                if (success && downloadFile != null) {
-                    val outputUri = FileProvider.getUriForFile(context, BuildConfig.APPLICATION_ID + ".provider", downloadFile!!)
-                    _downloadState.emit(State.Done(outputUri))
-                } else {
-                    _downloadState.emit(State.Failed)
+                    DownloadManager.STATUS_FAILED -> _downloadState.value = State.Failed
                 }
             }
         }
@@ -192,7 +188,8 @@ class MainViewModel @Inject constructor(
             mkdirs()
         }
         downloadFile = File(downloadFolder, fileName)
-        context.registerReceiver(downloadStateReceiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        ContextCompat.registerReceiver(context, downloadStateReceiver,
+            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED)
         context.contentResolver.registerContentObserver(Uri.parse("content://downloads/my_downloads"), true, downloadObserver)
         requestId = DownloadManager.Request(Uri.parse(url)).apply {
             setDescription(context.getString(R.string.download_manager_description))
@@ -225,6 +222,7 @@ class MainViewModel @Inject constructor(
             requestId?.let {
                 downloadManager.remove(it)
             }
+            requestId = null
             context.unregisterReceiver(downloadStateReceiver)
             context.contentResolver.unregisterContentObserver(downloadObserver)
             _downloadState.emit(State.Idle)

@@ -178,6 +178,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
     private var travelerMarker: Marker? = null
 
     override fun drawRoute(points: List<Pair<Double, Double>>, fitCamera: Boolean) {
+        if (!::mMap.isInitialized) return
         clearRoute()
         if (points.size < 2) return
         val lls = points.map { coordinates.toMap(it.first, it.second) }
@@ -222,6 +223,7 @@ class MapActivity: BaseMapActivity(), OnMapReadyCallback, GoogleMap.OnMapClickLi
 
         binding.startButton.setOnClickListener {
             if (handleGpxPlaybackClick(paused = false)) return@setOnClickListener
+            if (!locationOnOrAsk()) return@setOnClickListener
             viewModel.update(true, lat, lon)
             mLatLng.let {
                 updateMarker(it!!)

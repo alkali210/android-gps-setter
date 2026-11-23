@@ -4,6 +4,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.location.LocationRequest
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
 import io.github.jqssun.gpssetter.BuildConfig
@@ -12,66 +13,69 @@ import io.github.libxposed.api.XposedModule
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 import java.lang.reflect.Field
 import java.lang.reflect.Method
-import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+
+internal class SystemFixCadence {
+    private var lastAttemptMs = 0L
+
+    fun nextFixMs(lastGpsReportMs: Long, settings: HookSettings): Long =
+        maxOf(lastGpsReportMs, lastAttemptMs) + settings.locationUpdateIntervalMs
+
+    fun generateIfDue(nowMs: Long, lastGpsReportMs: Long, settings: HookSettings, generate: () -> Unit) {
+        if (nowMs >= nextFixMs(lastGpsReportMs, settings)) {
+            lastAttemptMs = nowMs
+            generate()
+        }
+    }
+}
 
 object LocationHook {
 
     private const val TAG = "GPS Setter"
-    @Volatile var newlat: Double = 45.0000
-    @Volatile var newlng: Double = 0.0000
-    @Volatile private var accuracy: Float = 10.0f
-    // motion for route playback; defaults mean static (no speed, bearing from the real fix)
-    @Volatile private var newAlt: Double = 0.0
-    @Volatile private var newSpeed: Float = 0f
-    @Volatile private var newBearing: Float = -1f
-    private val rand: Random = Random()
+    @Volatile private var current = HookSettings()
+    private var rawSettings = current
+    private val randomPosition = RandomPosition()
     private lateinit var module: XposedModule
     private lateinit var settings: Xshare
-    @Volatile private var mLastUpdated: Long = 0
-    @Volatile private var started = false
-    @Volatile private var updateIntervalMs = LocationUpdateInterval.DEFAULT_MS
+    private var systemProcess = false
     private val ignorePkg = arrayListOf("com.android.location.fused", BuildConfig.APPLICATION_ID)
 
     // Cached provider managers (e.g. "gps", "fused", "network") for generating fake fixes in system_server
     private val providerManagers = ConcurrentHashMap<String, Any>()
-    @Volatile private var generatorStarted = false
+    private var systemWorkerStarted = false
+    @Volatile private var generateFixes: (() -> Unit)? = null
     @Volatile private var lastGpsReportTime: Long = 0
     private var locationResultWrap: Method? = null
 
-    private fun init(xposed: XposedModule) {
+    private fun init(xposed: XposedModule, system: Boolean = false) {
         module = xposed
-        settings = Xshare(xposed.getRemotePreferences(Xshare.GROUP))
+        val prefs = xposed.getRemotePreferences(Xshare.GROUP)
+        systemProcess = system
+        settings = if (system) Xshare(prefs) {
+            ParcelFileDescriptor.AutoCloseInputStream(xposed.openRemoteFile(Xshare.FILE))
+        } else Xshare(prefs)
+        rawSettings = (if (system) settings.refresh(SystemClock.elapsedRealtime()) else settings.initialSettings) ?: HookSettings()
+        current = rawSettings
     }
 
-    // re-reads settings (and re-rolls the random offset) at most once per interval, so start/stop and new locations apply without a reboot
+    // System callbacks use the worker's in-memory fix; never open files on framework threads.
     private fun isActive(interval: Int): Boolean {
-        if (System.currentTimeMillis() - mLastUpdated >= minOf(interval.toLong(), updateIntervalMs)) {
-            updateLocation()
+        if (!systemProcess) {
+            val now = SystemClock.elapsedRealtime()
+            if (now >= settings.nextReadMs) updateLocation(now, interval.toLong())
         }
-        return started
+        return current.isStarted
     }
 
     @Synchronized
-    private fun updateLocation() {
+    private fun updateLocation(nowMs: Long, maxIntervalMs: Long = Long.MAX_VALUE) {
         try {
-            mLastUpdated = System.currentTimeMillis()
-            updateIntervalMs = settings.locationUpdateIntervalMs
-            val now = settings.isStarted
-            if (now != started) module.log(Log.INFO, TAG, "Spoofing ${if (now) "on" else "off"}")
-            started = now
-            if (!started) return
-            val north = (rand.nextInt(51) - 25).toDouble()
-            val east = (rand.nextInt(51) - 25).toDouble()
-            newlat =
-                if (settings.isRandomPosition) settings.getLat + GeoOffset.latOffsetDegrees(north) else settings.getLat
-            newlng =
-                if (settings.isRandomPosition) settings.getLng + GeoOffset.lngOffsetDegrees(east, settings.getLat) else settings.getLng
-            accuracy = settings.accuracy?.toFloatOrNull()?.takeIf { it > 0f } ?: 10.0f
-            newAlt = settings.altitude
-            newSpeed = settings.speed
-            newBearing = settings.bearing
-
+            val refreshed = settings.refresh(nowMs, maxIntervalMs)
+            if (refreshed == null && nowMs < randomPosition.nextSampleMs) return
+            val next = refreshed ?: rawSettings
+            if (next.isStarted != current.isStarted) module.log(Log.INFO, TAG, "Spoofing ${if (next.isStarted) "on" else "off"}")
+            rawSettings = next
+            current = randomPosition.apply(next, nowMs, minOf(next.locationUpdateIntervalMs, maxIntervalMs))
         } catch (e: Exception) {
             module.log(Log.ERROR, TAG, "Failed to read settings", e)
         }
@@ -79,6 +83,7 @@ object LocationHook {
 
     // the spoofed fix; keeps timing/bearing from the real one when there is one
     private fun fakeLocation(origin: Location? = null, provider: String = LocationManager.GPS_PROVIDER): Location {
+        val fix = current
         val location = Location(origin?.provider ?: provider)
         if (origin != null) {
             location.time = origin.time
@@ -91,16 +96,16 @@ object LocationHook {
             location.time = System.currentTimeMillis() - 300
             location.elapsedRealtimeNanos = nowNanos - 300_000_000L
         }
-        location.latitude = if (newlat == 0.0 && newlng == 0.0) 0.000001 else newlat
-        location.longitude = if (newlat == 0.0 && newlng == 0.0) 0.000001 else newlng
+        location.latitude = if (fix.latitude == 0.0 && fix.longitude == 0.0) 0.000001 else fix.latitude
+        location.longitude = if (fix.latitude == 0.0 && fix.longitude == 0.0) 0.000001 else fix.longitude
         // LocationResult.validate() rejects accuracy <=0 or > 1,000,000 m; keep it sane
-        location.accuracy = accuracy.coerceIn(1.0f, 10000.0f)
-        location.altitude = newAlt
-        location.speed = if (newSpeed > 0f) newSpeed else 0F
-        location.speedAccuracyMetersPerSecond = if (newSpeed > 0f) 1F else 0F
+        location.accuracy = fix.accuracy.coerceIn(1.0f, 10000.0f)
+        location.altitude = fix.altitude
+        location.speed = if (fix.speed > 0f) fix.speed else 0F
+        location.speedAccuracyMetersPerSecond = if (fix.speed > 0f) 1F else 0F
         // route playback supplies a heading; otherwise keep the real fix's bearing (set above)
-        if (newBearing >= 0f) {
-            location.bearing = newBearing
+        if (fix.bearing >= 0f) {
+            location.bearing = fix.bearing
             location.bearingAccuracyDegrees = 1F
         }
         try {
@@ -182,62 +187,63 @@ object LocationHook {
     }
 
     // Supply missing provider fixes at the same cadence as the app's coordinate updates.
-    private fun startFixGenerator(classLoader: ClassLoader, lmsClass: Class<*>, lpmClass: Class<*>, emergencyField: Field?) {
-        if (generatorStarted) return
-        generatorStarted = true
-
+    private fun configureFixGenerator(classLoader: ClassLoader, lmsClass: Class<*>, lpmClass: Class<*>, emergencyField: Field?) {
+        val targets = arrayOf(LocationManager.GPS_PROVIDER, LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER)
         val resultClass = Class.forName("android.location.LocationResult")
         val onReportLocation = lpmClass.getDeclaredMethod("onReportLocation", resultClass).apply {
             isAccessible = true
         }
 
-        Thread({
-            module.log(Log.INFO, TAG, "Started fake fix generator loop")
-            var lastAttempt = 0L
-            val targets = arrayOf(LocationManager.GPS_PROVIDER, LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            while (true) {
+        generateFixes = generate@{
+            // Never generate fake fixes during an active emergency call/SMS.
+            if (providerManagers.values.any { inEmergency(emergencyField?.get(it)) }) return@generate
+            if (!providerManagers.containsKey(LocationManager.GPS_PROVIDER)) {
+                tryResolveProviders(classLoader, lmsClass, lpmClass)
+            }
+            for (name in targets) {
+                val manager = providerManagers[name] ?: continue
                 try {
-                    val cadence = updateIntervalMs
-                    val elapsed = SystemClock.elapsedRealtime() - maxOf(lastGpsReportTime, lastAttempt)
-                    Thread.sleep(if (started) (cadence - elapsed).coerceIn(1L, 250L) else 250L)
-                    if (!isActive(200)) continue
-
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - maxOf(lastGpsReportTime, lastAttempt) < updateIntervalMs) continue
-                    lastAttempt = now
-
-                    // Never generate fake fixes during an active emergency call/SMS
-                    val inEmerg = providerManagers.values.any { inEmergency(emergencyField?.get(it)) }
-                    if (inEmerg) continue
-
-                    if (!providerManagers.containsKey(LocationManager.GPS_PROVIDER)) {
-                        tryResolveProviders(classLoader, lmsClass, lpmClass)
-                    }
-
-                    var deliveredGps = false
-                    for (name in targets) {
-                        val manager = providerManagers[name] ?: continue
-                        try {
-                            val fakeLoc = fakeLocation(provider = name)
-                            val res = wrapLocationResult(resultClass, fakeLoc) ?: continue
-                            // Use the provider's normal delivery path, including its listener filtering.
-                            onReportLocation.invoke(manager, res)
-                            if (name == LocationManager.GPS_PROVIDER) deliveredGps = true
-                        } catch (t: Throwable) {
-                            module.log(Log.WARN, TAG, "Failed to deliver fake fix to $name", t)
-                        }
-                    }
-
-                    if (deliveredGps) {
-                        lastGpsReportTime = now
-                    }
-                } catch (e: InterruptedException) {
-                    break
+                    val fakeLoc = fakeLocation(provider = name)
+                    val res = wrapLocationResult(resultClass, fakeLoc) ?: continue
+                    onReportLocation.invoke(manager, res)
                 } catch (t: Throwable) {
-                    module.log(Log.WARN, TAG, "Fix generator tick error", t)
+                    module.log(Log.WARN, TAG, "Failed to deliver fake fix to $name", t)
                 }
             }
-        }, "GpsSetter-FixGenerator").apply {
+        }
+    }
+
+    // One worker services both deadlines: the file must still be checked with no requests,
+    // no providers or spoofing off. A real GPS report postpones injection, not settings reads.
+    private fun startSystemWorker() {
+        if (systemWorkerStarted) return
+        systemWorkerStarted = true
+        Thread({
+            val cadence = SystemFixCadence()
+            while (true) {
+                var sleepMs = Xshare.MAX_CONTROL_INTERVAL_MS
+                try {
+                    val now = SystemClock.elapsedRealtime()
+                    val readOrSampleAt = minOf(settings.nextReadMs, randomPosition.nextSampleMs)
+                    if (now >= readOrSampleAt) updateLocation(now)
+                    val fix = current
+                    var wakeAt = minOf(settings.nextReadMs, randomPosition.nextSampleMs)
+                    val generate = generateFixes
+                    if (generate != null && fix.isStarted) {
+                        cadence.generateIfDue(now, lastGpsReportTime, fix, generate)
+                        wakeAt = minOf(wakeAt, cadence.nextFixMs(lastGpsReportTime, fix))
+                    }
+                    sleepMs = (wakeAt - SystemClock.elapsedRealtime()).coerceAtLeast(1L)
+                } catch (t: Throwable) {
+                    module.log(Log.WARN, TAG, "System location worker error", t)
+                }
+                try {
+                    Thread.sleep(sleepMs)
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+        }, "GpsSetter-SystemLocation").apply {
             isDaemon = true
             start()
         }
@@ -258,12 +264,14 @@ object LocationHook {
     }
 
     fun initSystemHooks(xposed: XposedModule, classLoader: ClassLoader) {
-        init(xposed)
+        init(xposed, system = true)
         module.log(Log.INFO, TAG, "Hooking system server (SDK ${Build.VERSION.SDK_INT})")
-        if (!settings.isHookedSystem) {
+        if (!current.isHookedSystem) {
             module.log(Log.INFO, TAG, "System hook disabled in settings")
             return
         }
+        // Keep settings live even on ROMs without the optional fix-generator methods.
+        startSystemWorker()
         val interval = 200
 
         // LocationManagerService lived in com.android.server up to Android 10, com.android.server.location from 11
@@ -362,7 +370,7 @@ object LocationHook {
                     }
                 }
 
-                startFixGenerator(classLoader, lms, lpm, emergency)
+                safely("fix generator") { configureFixGenerator(classLoader, lms, lpm, emergency) }
             }
         }
     }
@@ -376,7 +384,7 @@ object LocationHook {
     }
 
     fun initAppHooks(xposed: XposedModule, packageName: String) {
-        if (packageName in ignorePkg) return
+        if (systemProcess || packageName in ignorePkg) return
         init(xposed)
         val interval = 80 // 200
 

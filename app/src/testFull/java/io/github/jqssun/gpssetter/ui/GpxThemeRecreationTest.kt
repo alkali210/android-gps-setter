@@ -1,6 +1,7 @@
 package io.github.jqssun.gpssetter.ui
 
 import android.content.res.Configuration
+import android.location.LocationManager
 import android.os.Looper
 import android.view.View
 import android.widget.EditText
@@ -49,7 +50,11 @@ class GpxThemeRecreationTest {
         val service = Robolectric.buildService(RoutePlaybackService::class.java).create()
         try {
             val home = controller.get()
-            home.onMapReady(MapSurface(CameraPosition(LatLng(0.0, 0.0), 12f, 0f, 0f)).map)
+            val surface = MapSurface(CameraPosition(LatLng(0.0, 0.0), 12f, 0f, 0f))
+            home.onMapReady(surface.map)
+            home.findViewById<View>(R.id.mode_route).performClick()
+            val location = shadowOf(home.getSystemService(LocationManager::class.java)!!)
+            location.setLocationEnabled(false)
             BaseMapActivity::class.java.getDeclaredMethod("askSpeedAndPlay", List::class.java)
                 .apply { isAccessible = true }
                 .invoke(home, listOf(RoutePoint(0.0, 0.0), RoutePoint(0.0, 1.0)))
@@ -63,6 +68,21 @@ class GpxThemeRecreationTest {
                 assertNull(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService)
             }
             input.setText("2000")
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+            val prompt = ShadowDialog.getLatestDialog() as AlertDialog
+            assertNotSame(dialog, prompt)
+            assertEquals(home.getString(R.string.turn_on_location), prompt.getButton(AlertDialog.BUTTON_POSITIVE).text)
+            assertTrue(dialog.isShowing)
+            assertTrue(surface.routes.isEmpty())
+            val model = BaseMapActivity::class.java.getDeclaredMethod("getViewModel")
+                .apply { isAccessible = true }.invoke(home) as MainViewModel
+            assertTrue(model.gpxOverlay.isEmpty())
+            assertEquals(View.VISIBLE, home.findViewById<View>(R.id.route_setup).visibility)
+            assertEquals(View.VISIBLE, home.findViewById<View>(R.id.route_controls).visibility)
+            assertNull(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService)
+
+            prompt.dismiss()
+            location.setLocationEnabled(true)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
             assertFalse(dialog.isShowing)
             service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 1)
@@ -144,6 +164,7 @@ class GpxThemeRecreationTest {
             // Represents the user's pan/zoom/rotation after importing the track.
             initialMap.camera = originalCamera
             if (followSystem) {
+                shadowOf(first.getSystemService(LocationManager::class.java)!!).setLocationEnabled(false)
                 first.findViewById<View>(R.id.stop_button).performClick()
                 service.get().onStartCommand(shadowOf(RuntimeEnvironment.getApplication()).nextStartedService, 0, 2)
                 shadowOf(Looper.getMainLooper()).idle()

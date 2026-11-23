@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp">
+
+    <Button
+        android:id="@+id/import_route"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/library_import" />
+
+    <Button
+        android:id="@+id/save_planned"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/library_save_planned" />
+
+    <TextView
+        android:id="@+id/empty_routes"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp"
+        android:text="@string/library_empty" />
+
+    <ListView
+        android:id="@+id/routes"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_weight="1" />
+
+    <Button
+        android:id="@+id/undo_delete"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+</LinearLayout>

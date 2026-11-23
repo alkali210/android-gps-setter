@@ -2,12 +2,14 @@ package io.github.jqssun.gpssetter.utils.ext
 
 
 import android.content.Context
+import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.widget.Toast
+import androidx.core.location.LocationManagerCompat
 
-
-
+internal fun Context.isLocationOn(): Boolean =
+    LocationManagerCompat.isLocationEnabled(getSystemService(Context.LOCATION_SERVICE) as LocationManager)
 
 fun Context.showToast(msg : String){
     Toast.makeText(this,msg, Toast.LENGTH_LONG).show()

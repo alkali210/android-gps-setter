@@ -192,8 +192,8 @@ class RoutePlaybackService : Service() {
 
     private fun build(): Notification {
         ensureChannel()
-        val stop = PendingIntent.getService(
-            this, 0, Intent(this, RoutePlaybackService::class.java).setAction(ACTION_STOP),
+        fun action(command: String) = PendingIntent.getService(
+            this, 0, Intent(this, RoutePlaybackService::class.java).setAction(command),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         return NotificationCompat.Builder(this, CHANNEL)
@@ -204,7 +204,13 @@ class RoutePlaybackService : Service() {
             } else "$progress%")
             .setOngoing(true)
             .setProgress(100, progress, false)
-            .addAction(R.drawable.ic_stop, getString(R.string.stop), stop)
+            .apply {
+                gpxPlayback.value?.let { session ->
+                    if (session.paused) addAction(R.drawable.ic_play, getString(R.string.route_resume), action(ACTION_RESUME))
+                    else addAction(R.drawable.ic_pause, getString(R.string.route_pause), action(ACTION_PAUSE))
+                }
+            }
+            .addAction(R.drawable.ic_stop, getString(R.string.stop), action(ACTION_STOP))
             .build()
     }
 

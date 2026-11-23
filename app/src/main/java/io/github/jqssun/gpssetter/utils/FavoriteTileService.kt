@@ -6,6 +6,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import io.github.jqssun.gpssetter.R
 import io.github.jqssun.gpssetter.repository.FavoriteRepository
 import io.github.jqssun.gpssetter.room.Favorite
+import io.github.jqssun.gpssetter.utils.ext.isLocationOn
 import javax.inject.Inject
 
 // One-tap QS tile that spoofs to a saved favorite. Android requires static tile declaration, so
@@ -25,6 +26,7 @@ abstract class FavoriteTileService : TileService() {
         val lat = fav?.lat
         val lng = fav?.lng
         if (lat != null && lng != null) {
+            if (!isLocationOn()) return openAppToTurnOnLocation()
             PrefManager.update(true, lat, lng)
         }
         refresh()

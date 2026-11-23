@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="saved_routes">Saved routes</string>
+    <string name="library_import">Import GPX or GeoJSON</string>
+    <string name="library_save_planned">Save planned route</string>
+    <string name="library_empty">No saved routes yet. Import a file or save a planned route.</string>
+    <string name="library_name">Route name</string>
+    <string name="library_default_name">Untitled route</string>
+    <string name="library_export">Export GPX</string>
+    <string name="library_delete">Delete route</string>
+    <string name="library_undo">Undo delete: %1$s</string>
+    <string name="library_import_failed">Could not import a route. Choose a GPX or GeoJSON file with at least two points.</string>
+    <string name="route_file_too_large">Choose a route file no larger than %1$d MiB.</string>
+    <string name="library_unavailable">Could not open the saved route.</string>
+    <string name="library_save_failed">Could not save the route.</string>
+    <string name="library_exported">GPX file exported.</string>
+    <string name="library_summary">%1$s · %2$.2f km</string>
+    <string name="library_play_limit">This route is too large for GPX playback. Export it and split it into shorter tracks.</string>
+</resources>
